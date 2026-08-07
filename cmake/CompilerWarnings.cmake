@@ -5,10 +5,10 @@ function(flashpoint_define_warning_target target_name)
 
     set(clang_warnings
         -Wall
-        -Wextra                 
-        -Wpedantic              
-        -Wshadow                
-        -Wnon-virtual-dtor      
+        -Wextra
+        -Wpedantic
+        -Wshadow
+        -Wnon-virtual-dtor
         -Wold-style-cast        # C-style casts hide const/reinterpret casts.
         -Wcast-align            # Casts that increase required alignment: UB, and slow on some ISAs.
         -Wunused

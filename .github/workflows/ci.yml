@@ -66,11 +66,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install pinned clang-format
+        run: pip install "clang-format==$(cat .clang-format-version)"
+
       - name: Check formatting
         run: |
           clang-format --version
-          # .hpp.in templates are excluded: the @VAR@ placeholders are not
-          # valid C++ tokens and clang-format mangles them.
-          find include src tests \
-            \( -name '*.cpp' -o -name '*.hpp' \) \
-            -print0 | xargs -0 clang-format --dry-run --Werror
+          # git ls-files restricts the check to tracked sources, so build output
+          # can never be scanned. .hpp.in templates are excluded because their
+          # @VAR@ placeholders are not valid C++ tokens.
+          files=$(git ls-files '*.cpp' '*.hpp')
+          if [ -z "$files" ]; then
+            echo "::error::No source files matched; the format gate would pass vacuously."
+            exit 1
+          fi
+          echo "$files" | xargs clang-format --dry-run --Werror

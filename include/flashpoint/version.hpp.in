@@ -20,4 +20,4 @@ inline constexpr std::string_view kVersionString = "@PROJECT_VERSION@";
 /// Returns the version the library was *compiled* with.
 [[nodiscard]] std::string_view version() noexcept;
 
-} 
+}  // namespace flashpoint

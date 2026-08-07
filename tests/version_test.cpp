@@ -33,5 +33,5 @@ TEST(Version, ComponentsAreConsistentWithString) {
     EXPECT_EQ(kVersionString, expected);
 }
 
-} 
-}  
+}  // namespace
+}  // namespace flashpoint

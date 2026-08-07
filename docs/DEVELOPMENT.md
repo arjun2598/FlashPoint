@@ -8,29 +8,49 @@
 | C++ compiler | GCC 11+, Clang 14+, or Apple Clang 14+ | C++20 required |
 | Git | any recent | GoogleTest is fetched at configure time |
 
-Optional but recommended: `clang-format` (CI enforces it) and `clang-tidy`.
-
 ### macOS
 
 ```bash
 xcode-select --install
-brew install cmake llvm
+brew install cmake
 ```
-
-`clang-format` and `clang-tidy` ship with the Homebrew `llvm` formula, not with
-Apple's toolchain. Add them to your `PATH`:
-
-```bash
-echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc
-```
-
-Keep using Apple Clang to *build*; Homebrew LLVM is only needed for the tools.
 
 ### Ubuntu / Debian
 
 ```bash
-sudo apt-get install build-essential cmake clang clang-format clang-tidy
+sudo apt-get install build-essential cmake clang
 ```
+
+### clang-format (version-pinned)
+
+**Do not install `clang-format` from Homebrew or apt.** Its output changes
+between major releases, so a system-provided formatter will disagree with CI and
+your build will fail on code you never touched.
+
+The required version lives in [`.clang-format-version`](../.clang-format-version).
+CI installs exactly that version; install the same one locally:
+
+```bash
+pipx install "clang-format==$(cat .clang-format-version)"
+```
+
+No `pipx`? A virtualenv works identically:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install "clang-format==$(cat .clang-format-version)"
+```
+
+Confirm you match CI:
+
+```bash
+clang-format --version && cat .clang-format-version
+```
+
+### clang-tidy (optional)
+
+Not enforced in CI, so the version does not need pinning. `brew install llvm` on
+macOS (add `/opt/homebrew/opt/llvm/bin` to your `PATH`) or
+`sudo apt-get install clang-tidy` on Debian/Ubuntu.
 
 ## Building
 
@@ -81,17 +101,28 @@ ctest --preset dev -R Version
 CI fails on unformatted code. Format everything before committing:
 
 ```bash
-find include src tests \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format -i
+git ls-files '*.cpp' '*.hpp' | xargs clang-format -i
 ```
 
 Check without modifying — this is exactly what CI runs:
 
 ```bash
-find include src tests \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format --dry-run --Werror
+git ls-files '*.cpp' '*.hpp' | xargs clang-format --dry-run --Werror
 ```
 
-`.hpp.in` templates are excluded: their `@VAR@` placeholders are not valid C++
-tokens and `clang-format` mangles them.
+Two things to know about this gate:
+
+- **Your `clang-format` must match `.clang-format-version`.** A different major
+  version formats differently and will disagree with CI. See the setup section
+  above.
+- **`.hpp.in` templates are excluded** — their `@VAR@` placeholders are not valid
+  C++ tokens and `clang-format` mangles them. The trade-off is that templates are
+  not format-checked at all, so keep them tidy by hand.
+
+The most common violation is a missing namespace-closing comment. `.clang-format`
+sets `FixNamespaceComments: true`, so every namespace must close as
+`}  // namespace flashpoint`, not a bare `}`. Running `clang-format -i` adds
+these automatically.
 
 ## Static analysis
 

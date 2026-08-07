@@ -8,4 +8,4 @@ std::string_view version() noexcept {
     return kVersionString;
 }
 
-}
+}  // namespace flashpoint
