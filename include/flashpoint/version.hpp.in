@@ -1,0 +1,23 @@
+// Generated from version.hpp.in by CMake. Do not edit the generated copy.
+//
+// The single source of truth for the project version is the project() call in
+// the top-level CMakeLists.txt.
+
+#pragma once
+
+#include <cstdint>
+#include <string_view>
+
+namespace flashpoint {
+
+inline constexpr std::uint32_t kVersionMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr std::uint32_t kVersionMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr std::uint32_t kVersionPatch = @PROJECT_VERSION_PATCH@;
+
+/// Dotted version string, e.g. "0.1.0".
+inline constexpr std::string_view kVersionString = "@PROJECT_VERSION@";
+
+/// Returns the version the library was *compiled* with.
+[[nodiscard]] std::string_view version() noexcept;
+
+} 

@@ -1,0 +1,26 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+
+ColumnLimit: 100
+IndentWidth: 4
+AccessModifierOffset: -4
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# Keep the standard library, third-party headers, and our own headers visually
+# separated, with our own header first in its implementation file.
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
+
+SeparateDefinitionBlocks: Always
+FixNamespaceComments: true
+NamespaceIndentation: None
+
+Standard: c++20
