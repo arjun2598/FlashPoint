@@ -35,7 +35,7 @@ static_assert(!std::is_constructible_v<Order, OrderId, Side, Quantity, Price>);
 // Nor can the identifier and the price trade places.
 static_assert(!std::is_constructible_v<Order, Price, Side, OrderId, Quantity>);
 
-// The book will move orders around freely. Any member that broke this would put an allocation on 
+// The book will move orders around freely. Any member that broke this would put an allocation on
 // the hot path. order.hpp asserts this too, but repeating it here means the test suite
 // reports it as a named failure rather than a build error.
 static_assert(std::is_trivially_copyable_v<Order>);

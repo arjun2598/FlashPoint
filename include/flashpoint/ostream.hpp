@@ -1,7 +1,7 @@
 // Stream inserters for the core domain types.
 //
 // Kept out of types.hpp and order.hpp on purpose. <ostream> is a heavy header
-// and instantiates a great deal of machinery; the engine's hot path shouldn't include it. 
+// and instantiates a great deal of machinery; the engine's hot path shouldn't include it.
 // Tests, the demo, and diagnostic code include this
 // header explicitly. The library itself never does.
 //

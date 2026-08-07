@@ -49,9 +49,9 @@ measurement at Milestone 11.
   `Quantity::Rep` are 64-bit. Tick counts and share quantities may fit
   comfortably in 32 bits for any realistic instrument, which would take the
   payload from 25 bytes to 17 and the object from 32 to 24, improving cache density and allowing
-  more orders to fit in higher cache levels. However, the choice of 64-bit is intentional 
-  here to allow a greater range, and latency should be measured under realistic order-book workloads 
-  before reducing the representation size, since smaller objects improve cache locality but may not 
+  more orders to fit in higher cache levels. However, the choice of 64-bit is intentional
+  here to allow a greater range, and latency should be measured under realistic order-book workloads
+  before reducing the representation size, since smaller objects improve cache locality but may not
   materially affect end-to-end matching performance.
 
   Recorded here rather than acted on. The point worth noting is that because
