@@ -130,3 +130,118 @@ raw integers everywhere.
 **Why:** two copies of a version number diverge. `version()` is deliberately
 out-of-line rather than `constexpr` so a caller can detect a mismatch between
 the headers they compiled against and the library they linked.
+
+---
+
+## DD-009 — `Price` is an integer value of ticks
+
+**Decision:** `Price` wraps a signed `std::int64_t` count of ticks. Tick size and
+the mapping to a displayed currency amount are dependent on instrument configuration.
+
+**Alternatives:** fixed-point with a compile-time scale (e.g. integer × 10⁻⁴);
+runtime-scaled decimal carrying its scale per instance.
+
+**Why:** Prices are stored as integer tick counts, so comparisons are exact and never rely on floating-point arithmetic. The type stays eight bytes. A tick count also maps naturally to an array index, which keeps open the possibility of implementing a direct-indexed price ladder in Milestone 11.
+
+A compile-time scale bakes one scale into a type that should work across asset
+classes, and mixes display formatting with the core matching logic. Storing the scale alongside every price would make each Price object larger and require extra work every time prices are compared.
+
+**Deliberately signed.** Negative prices can exist: oil futures settled below zero
+in 2020 and calendar-spread instruments quote negative routinely. Whether negative prices are allowed is a business rule enforced by the engine, not by the `Price` type itself.
+Consequently `Price` has no `is_valid()`, as unlike `Quantity` and `OrderId`,
+there is no value of the representation that is inherently malformed.
+
+**Cost accepted:** A value like `Price{10250}` is not human-readable without knowing the tick
+size. Formatting is the demo's job at Milestone 12.
+
+---
+
+## DD-010 — Hand-written strong types, not aliases or a generic template
+
+**Decision:** `Price`, `Quantity` and `OrderId` are each written out as a
+distinct class with an `explicit` constructor and only the operations that make
+sense for it.
+
+**Alternatives:** plain aliases (`using Price = std::int64_t`); a generic
+`StrongType<T, Tag, Skills...>` with capability mixins.
+
+**Why not type aliases?:** `Order{id, side, quantity, price}` would compile with price
+and quantity transposed. Both are 64-bit integers, so the `-Wconversion`
+warning we turned on precisely to catch integer mistakes (DD-007) is blind to
+it. Accidentally swapping price and quantity is a simple but very costly bug, yet it is the kind of bug the compiler can prevent entirely.
+
+**Why the generic template loses:** it is a metaprogramming framework in service
+of three types. It costs readability and compiler diagnostics to save
+repetition that has not yet become an issue.
+
+Each type gets exactly its own algebra rather than a uniform one. `Quantity` has
+`+` and `-` because adding quantities is meaningful. `Price` has neither,
+because adding two prices has no meaning. When a consumer eventually needs price
+arithmetic, the right shape is the one `std::chrono` uses:
+`Price - Price` yields a tick delta, `Price + delta` yields a `Price`, and
+`Price + Price` stays ill-formed.
+
+**Verified, not assumed:** `tests/order_test.cpp` asserts
+`!std::is_constructible_v<Order, OrderId, Side, Quantity, Price>`.
+Transposed calls are not merely discouraged, they do not compile.
+
+**Cost accepted:** roughly forty lines per type, with some repetition between them.
+
+---
+
+## DD-011 — `Order` is the inbound request only
+
+**Decision:** `Order` is immutable and models what a client asked for. The representation the book stores for a resting order
+is designed at Milestone 4.
+
+**Alternatives:** one `Order` carrying both original and remaining quantity with
+the book mutating it, or defining `Order` and `RestingOrder` together now.
+
+**Why:** a single type conflates a request with a book entry. An incoming order has no remaining quantity until the matching engine accepts it. But defining `RestingOrder` today means designing it for a consumer that does not exist. Once the order book exists, it will naturally determine what additional information a resting order needs.
+
+**Consequence:** Milestone 4 necessarily introduces a second order type. That is
+the intended outcome, not an oversight.
+
+**Related:** `Order` carries **no timestamp**. Time priority already comes from FIFO ordering within a price level, which the book provides.
+Storing arrival time per order would be eight redundant bytes on the hottest object in the system.
+
+---
+
+## DD-012 — Validation happens at the boundary, not in constructors
+
+**Decision:** Constructors do not validate their inputs.`Quantity` is unsigned, so negatives are unrepresentable rather than rejected. `is_valid()` is offered on
+the types that have a malformed state, and the engine calls it once at its
+entry point (Milestone 5).
+
+**Alternatives:** throwing constructors, a private constructor plus a static
+factory returning `Result<Order>`.
+
+**Why:** what you validate at the boundary you may trust internally. Constructors that validate every object would repeat the same checks throughout the system, adding unnecessary work on the hot path. This seems more suitable for low-latency systems and is a deliberate contrast to the validate-everywhere style appropriate to less performance-sensitive code.
+
+A `Result<T>` factory would be a type-safe alternative to exceptions. We deliberately postponed implementing `Result<T>` under DD-003, and introducing it now would also make every construction site more verbose.
+
+**Cost accepted:** nothing prevents constructing a zero-quantity `Order` deep
+inside the code. The mitigation is that the one place orders enter the system is
+the place that checks.
+
+**The exception that proves the rule:** `Quantity::operator-=` carries an
+`assert` against unsigned wraparound. Wraparound is well-defined behaviour, so
+neither UBSan nor any warning catches it, meaning an over-fill would silently produce a
+resting quantity of 1.8 × 10¹⁹. `assert` costs nothing under `NDEBUG`, so the
+check exists in every development and CI build and vanishes in release. Debug
+assertions are free; runtime validation is not.
+
+---
+
+## DD-013 — Stream inserters live in a separate header
+
+**Decision:** `operator<<` for the domain types is in `flashpoint/ostream.hpp`,
+which the library never includes. Tests, the demo and diagnostics include it
+explicitly.
+
+**Alternative:** put the inserters in `types.hpp` and `order.hpp` alongside the
+types.
+
+**Why:** `<ostream>` is an expensive header to include. Pulling it into the core domain types would increase compile times for every translation unit, even though the matching engine itself never formats output.
+
+Without stream operators, GoogleTest prints failed comparisons as raw bytes instead of readable values.

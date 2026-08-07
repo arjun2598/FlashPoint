@@ -1,0 +1,131 @@
+// Tests for the Order value type.
+//
+// Order has no logic beyond construction and a structural validity check, so
+// the tests concentrate on the two things that would actually hurt later: that
+// the field types make an argument transposition impossible to compile, and
+// that the memory layout does not drift.
+
+#include "flashpoint/order.hpp"
+
+#include "flashpoint/ostream.hpp"
+#include "flashpoint/types.hpp"
+
+#include <gtest/gtest.h>
+
+#include <type_traits>
+
+namespace flashpoint {
+namespace {
+
+constexpr Order make_order() {
+    return Order{OrderId{7}, Side::Buy, Price{10250}, Quantity{500}};
+}
+
+// ---------------------------------------------------------------------------
+// Compile-time guarantees
+// ---------------------------------------------------------------------------
+
+// The payoff for DD-010. Order takes price and quantity adjacently, ane in a
+// codebase of raw int64s, these arguments could easily be swapped mistakenly.
+// No warning might catch this, since both arguments would be the same type. Here the
+// transposed call is simply not a viable constructor.
+static_assert(std::is_constructible_v<Order, OrderId, Side, Price, Quantity>);
+static_assert(!std::is_constructible_v<Order, OrderId, Side, Quantity, Price>);
+
+// Nor can the identifier and the price trade places.
+static_assert(!std::is_constructible_v<Order, Price, Side, OrderId, Quantity>);
+
+// The book will move orders around freely. Any member that broke this would put an allocation on 
+// the hot path. order.hpp asserts this too, but repeating it here means the test suite
+// reports it as a named failure rather than a build error.
+static_assert(std::is_trivially_copyable_v<Order>);
+
+// Constructible in a constant expression, so orders can be built into constexpr
+// fixtures and compile-time scenario tables.
+static_assert(make_order().id() == OrderId{7});
+
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
+
+// Pins the memory layout deliberately. This is not a correctness property, it is
+// a performance regression test: at 32 bytes two orders share a 64-byte cache
+// line, and the book's traffic is dominated by walking orders. If a later
+// milestone adds a field, this fails and forces the cost to be an explicit
+// decision rather than an accident.
+//
+// 8 (OrderId) + 8 (Price) + 8 (Quantity) + 1 (Side) = 25 bytes of payload,
+// rounded to 32 by the 8-byte alignment.
+TEST(Order, FitsInThirtyTwoBytesSoTwoShareACacheLine) {
+    EXPECT_EQ(sizeof(Order), 32U);
+    EXPECT_EQ(alignof(Order), 8U);
+}
+
+// ---------------------------------------------------------------------------
+// Construction and access
+// ---------------------------------------------------------------------------
+
+TEST(Order, ReportsBackExactlyWhatItWasBuiltFrom) {
+    const Order order{OrderId{7}, Side::Buy, Price{10250}, Quantity{500}};
+
+    EXPECT_EQ(order.id(), OrderId{7});
+    EXPECT_EQ(order.side(), Side::Buy);
+    EXPECT_EQ(order.price(), Price{10250});
+    EXPECT_EQ(order.quantity(), Quantity{500});
+}
+
+TEST(Order, DefaultConstructsToAnEmptyInvalidOrder) {
+    const Order order{};
+
+    EXPECT_EQ(order.id(), OrderId{});
+    EXPECT_EQ(order.price(), Price{});
+    EXPECT_EQ(order.quantity(), Quantity{});
+    EXPECT_FALSE(order.is_valid());
+}
+
+TEST(Order, EqualityComparesEveryField) {
+    const Order order{OrderId{7}, Side::Buy, Price{10250}, Quantity{500}};
+
+    EXPECT_EQ(order, (Order{OrderId{7}, Side::Buy, Price{10250}, Quantity{500}}));
+
+    EXPECT_NE(order, (Order{OrderId{8}, Side::Buy, Price{10250}, Quantity{500}}));
+    EXPECT_NE(order, (Order{OrderId{7}, Side::Sell, Price{10250}, Quantity{500}}));
+    EXPECT_NE(order, (Order{OrderId{7}, Side::Buy, Price{10251}, Quantity{500}}));
+    EXPECT_NE(order, (Order{OrderId{7}, Side::Buy, Price{10250}, Quantity{501}}));
+}
+
+// ---------------------------------------------------------------------------
+// Structural validity
+// ---------------------------------------------------------------------------
+
+TEST(Order, WellFormedOrderIsValid) {
+    EXPECT_TRUE((Order{OrderId{7}, Side::Buy, Price{10250}, Quantity{500}}.is_valid()));
+    EXPECT_TRUE((Order{OrderId{7}, Side::Sell, Price{10250}, Quantity{500}}.is_valid()));
+}
+
+TEST(Order, ReservedOrderIdMakesTheOrderInvalid) {
+    EXPECT_FALSE(
+        (Order{OrderId{OrderId::kNone}, Side::Buy, Price{10250}, Quantity{500}}.is_valid()));
+}
+
+TEST(Order, ZeroQuantityMakesTheOrderInvalid) {
+    EXPECT_FALSE((Order{OrderId{7}, Side::Buy, Price{10250}, Quantity{0}}.is_valid()));
+}
+
+// The realistic path to this state is decoding a malformed inbound message,
+// which is precisely what the boundary check at Milestone 5 must reject.
+TEST(Order, SideOutsideTheEnumeratorsMakesTheOrderInvalid) {
+    EXPECT_FALSE((Order{OrderId{7}, static_cast<Side>(9), Price{10250}, Quantity{500}}.is_valid()));
+}
+
+// Price carries no validity constraint of its own: zero and negative ticks are
+// both legitimately representable, and whether a venue accepts them is policy
+// checked at the engine boundary. An order is not malformed merely for being
+// priced oddly.
+TEST(Order, PriceNeverAffectsStructuralValidity) {
+    EXPECT_TRUE((Order{OrderId{7}, Side::Buy, Price{0}, Quantity{500}}.is_valid()));
+    EXPECT_TRUE((Order{OrderId{7}, Side::Buy, Price{-500}, Quantity{500}}.is_valid()));
+}
+
+}  // namespace
+}  // namespace flashpoint

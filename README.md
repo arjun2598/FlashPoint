@@ -9,18 +9,22 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 1 of 13 complete — the build system,
-> test harness and CI are in place. The engine itself is being built one
-> milestone at a time. See [`docs/ROADMAP.md`](docs/ROADMAP.md). This README
-> describes what exists today, not what is planned.
+> **Status: in development.** Milestone 3 of 13 complete — the build system, CI,
+> and the core domain types are in place. The book and the matching engine are
+> being built one milestone at a time. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> This README describes what exists today, not what is planned.
 
 ## What exists today
 
-- CMake build producing a `flashpoint` static library and a GoogleTest suite.
+- **Core domain types** — `Side`, `Price`, `Quantity`, `OrderId` and `Order`.
+  Strong types, not typedefs: passing a quantity where a price belongs is a
+  compile error, and `Order` is pinned at 32 bytes so two share a cache line.
+- CMake build producing a `flashpoint` static library and a GoogleTest suite,
+  33 tests running under ASan/UBSan.
 - Three build presets: Debug with ASan/UBSan, Release, and RelWithDebInfo.
 - `-Werror` with an aggressive warning set including `-Wconversion`.
 - CI across Linux/GCC, Linux/Clang and macOS/AppleClang, in both sanitized
-  Debug and Release, plus a `clang-format` gate.
+  Debug and Release, plus a version-pinned `clang-format` gate.
 
 ## Planned
 

@@ -7,7 +7,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | --- | ------------------------------------------------------------------- | ------------------------------ |
 | 1   | Project setup & build system                                        | ✔ Complete                     |
 | 2   | Unit test harness & CI                                              | ✔ Complete (delivered with M1) |
-| 3   | Core domain types (`Price`, `Quantity`, `OrderId`, `Side`, `Order`) | ⬜ Not started                 |
+| 3   | Core domain types (`Price`, `Quantity`, `OrderId`, `Side`, `Order`) | ✔ Complete                     |
 | 4   | Limit order book (price levels, FIFO priority)                      | ⬜ Not started                 |
 | 5   | Matching engine — limit orders                                      | ⬜ Not started                 |
 | 6   | Market orders & time-in-force (IOC / FOK)                           | ⬜ Not started                 |
@@ -49,6 +49,37 @@ Delivered:
   error; ASan aborts on a heap-buffer-overflow. The gates are not merely present,
   they demonstrably fail bad code.
 
+## Milestone 3 — Core domain types ✔
+
+**Objective:** define the value vocabulary the whole engine speaks, before any
+container or algorithm depends on it. These types are the hardest thing in the
+project to change later.
+
+Delivered:
+
+- `include/flashpoint/types.hpp` — `Side`, `Price`, `Quantity`, `OrderId`.
+- `include/flashpoint/order.hpp` — `Order`, the immutable inbound request.
+- `include/flashpoint/ostream.hpp` — stream inserters, kept out of the library
+  so `<ostream>` never reaches the hot path.
+- 30 tests across `types_test.cpp` and `order_test.cpp`, plus 26 `static_assert`s
+  covering the properties a runtime test cannot express.
+
+Decisions recorded as DD-009 through DD-013: prices as integer ticks,
+hand-written strong types, `Order` as request-only, boundary validation, and
+separated stream inserters.
+
+**Verification performed:**
+
+- 33/33 tests pass under ASan/UBSan; 32/32 in Release, where the death test
+  correctly compiles out under `NDEBUG`.
+- Negative controls, compiled against the real headers: transposing price and
+  quantity, implicitly converting an `int` to a `Price`, building a `Quantity`
+  from a `Price`, and adding two `Price`s are each **rejected by the compiler**.
+  The type safety is demonstrated, not asserted.
+- `sizeof(Order) == 32` and `std::is_trivially_copyable_v<Order>` are pinned by
+  tests, so a later field addition fails loudly rather than quietly doubling the
+  book's memory traffic.
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
@@ -56,7 +87,13 @@ Recorded here so they are not silently defaulted:
 - **Single-symbol vs multi-symbol engine**: To be decided at Milestone 4. Determines
   whether `MatchingEngine` owns one book or a map of books, and whether
   threading ever enters the design.
-- **Price representation**: To be decided at Milestone 3. Fixed-point integer ticks
-  are near-certain, but the tick-size and scaling policy is a real choice.
+- ~~**Price representation**~~: Resolved at Milestone 3 — signed integer ticks,
+  see DD-009.
 - **Order storage / lifetime model**: To be decided at Milestone 4. Intrusive lists
   over a slab allocator vs `std::deque` per price level.
+- **Resting-order representation**: To be decided at Milestone 4. `Order` is the
+  inbound request only (DD-011); what the book stores is a separate type shaped
+  by the book's own needs.
+- **`std::hash<OrderId>`**: To be added at Milestone 4, alongside the book's
+  order-lookup map. Deliberately omitted now rather than pulling `<functional>`
+  into every translation unit before anything needs it.

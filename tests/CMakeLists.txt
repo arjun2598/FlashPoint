@@ -18,6 +18,8 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(flashpoint_tests
+    order_test.cpp
+    types_test.cpp
     version_test.cpp)
 
 target_link_libraries(flashpoint_tests
