@@ -8,7 +8,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 1   | Project setup & build system                                        | ✔ Complete                     |
 | 2   | Unit test harness & CI                                              | ✔ Complete (delivered with M1) |
 | 3   | Core domain types (`Price`, `Quantity`, `OrderId`, `Side`, `Order`) | ✔ Complete                     |
-| 4   | Limit order book (price levels, FIFO priority)                      | ⬜ Not started                 |
+| 4   | Limit order book (price levels, FIFO priority)                      | ✔ Complete                     |
 | 5   | Matching engine — limit orders                                      | ⬜ Not started                 |
 | 6   | Market orders & time-in-force (IOC / FOK)                           | ⬜ Not started                 |
 | 7   | Cancel orders                                                       | ⬜ Not started                 |
@@ -80,20 +80,49 @@ separated stream inserters.
   tests, so a later field addition fails loudly rather than quietly doubling the
   book's memory traffic.
 
+## Milestone 4 — Limit order book ✔
+
+**Objective:** a container holding resting orders in correct price-time
+priority, with top-of-book and depth queries. No matching.
+
+Delivered:
+
+- `include/flashpoint/order_book.hpp`, `src/order_book.cpp` — `OrderBook` with
+  `add`, `remove`, `best_bid`, `best_ask`, `quantity_at`, `order_count_at`,
+  `front_at`, `contains`, `size`, `empty`.
+- Price levels in a `std::map` per side (deferred, DD-015); orders within a level
+  in an intrusive FIFO queue over a pooled vector with a free list (DD-016).
+- `std::hash<OrderId>`, added now that the order index needs it.
+- 23 tests, the last of which is a differential test running 4,000 mixed
+  operations against a naive reference model, plus 10 static assertions pinning
+  the public API surface (DD-018).
+
+**Verification performed:**
+
+- 56/56 tests pass under ASan/UBSan.
+- **Mutation tested.** Four real bugs were injected into `order_book.cpp` and the
+  suite caught every one: `best_bid` reading `begin()` instead of `rbegin()`
+  (4 failures), the queue built LIFO instead of FIFO (8), empty levels never
+  erased (3), and `unlink` skipping the `next->prev` fixup (3).
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
 
-- **Single-symbol vs multi-symbol engine**: To be decided at Milestone 4. Determines
-  whether `MatchingEngine` owns one book or a map of books, and whether
-  threading ever enters the design.
-- ~~**Price representation**~~: Resolved at Milestone 3 — signed integer ticks,
-  see DD-009.
-- **Order storage / lifetime model**: To be decided at Milestone 4. Intrusive lists
-  over a slab allocator vs `std::deque` per price level.
-- **Resting-order representation**: To be decided at Milestone 4. `Order` is the
-  inbound request only (DD-011); what the book stores is a separate type shaped
-  by the book's own needs.
-- **`std::hash<OrderId>`**: To be added at Milestone 4, alongside the book's
-  order-lookup map. Deliberately omitted now rather than pulling `<functional>`
-  into every translation unit before anything needs it.
+- ~~**Price representation**~~: Resolved at Milestone 3 — signed integer ticks
+  (DD-009).
+- ~~**Single-symbol vs multi-symbol engine**~~: Resolved at Milestone 4 — the book
+  is symbol-unaware and V1 trades one instrument (DD-014).
+- ~~**Order storage / lifetime model**~~: Resolved at Milestone 4 — intrusive FIFO
+  queue over a pooled vector with a free list (DD-016).
+- ~~**Resting-order representation**~~: Resolved at Milestone 4 — a 24-byte node
+  holding only id, remaining quantity and links; side and price live in the
+  order index (DD-017).
+- ~~**`std::hash<OrderId>`**~~: Added at Milestone 4, now that the order index
+  needs it.
+- **Price-level container**: Deferred to later. `std::map` as of now; a ladder or hybrid is 
+  the likely replacement. The reasoning, including the case against deferring, is DD-015.
+  The deferral is safe only because DD-018 keeps the public API handle-based, so
+  no caller can depend on the container, and a test enforces that.
+- **Original quantity on a resting order**: To be decided at Milestone 9. Events
+  may need it; if so it is one extra field on `Node` (DD-017).

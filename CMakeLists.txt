@@ -49,6 +49,7 @@ configure_file(
 # Engine library
 
 add_library(flashpoint
+    src/order_book.cpp
     src/version.cpp)
 add_library(FlashPoint::flashpoint ALIAS flashpoint)
 

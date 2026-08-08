@@ -29,19 +29,30 @@ retrofitted to a preferred conclusion.
 Recorded as hypotheses, not claims. Each is to be confirmed or refuted by
 measurement at Milestone 11.
 
-- **Price level lookup.** A tree (`std::map`) is O(log n) with poor locality and
-  a pointer chase per node; a sorted vector or a direct-indexed price ladder is
-  cache-friendly but costs on insert or memory. Real books are dense near the
+- **Price level lookup — the open question, and now the only one.** Currently a
+  `std::map` per side: O(log L) with a pointer chase per node. A direct-indexed
+  ladder is O(1) but costs memory proportional to the tick range; a sorted vector
+  is cache-friendly but O(n) to insert mid-book. Real books are dense near the
   touch and sparse in the tail, which favours a hybrid.
-- **Order storage within a level.** FIFO priority means we only ever pop from
-  the front and push to the back. An intrusive list over a pre-allocated slab
-  gives O(1) cancel-by-id and no per-order allocation, at the cost of manual
-  lifetime management. `std::deque` is far simpler but makes cancel-from-middle
-  awkward.
+
+  Milestone 4 deliberately left this alone (DD-015) so that Milestone 10 has a
+  baseline to measure against and Milestone 11 has an oracle to differential-test
+  the replacement against. Worth noting what the book's structure now
+  guarantees: **every remaining O(log L) term in the book comes from this one
+  component.** `add`, `remove` and all three depth queries each pay exactly one
+  level lookup and nothing else. That makes the size of the prize measurable
+  before the work is done.
+- ~~**Order storage within a level.**~~ Resolved at Milestone 4: an intrusive
+  doubly-linked FIFO queue over a pooled `std::vector`, with freed slots on a
+  free list. No per-order allocation in steady state, and O(1) unlink from any
+  position. Nodes are addressed by 32-bit index rather than pointer, which is half the
+  size and stable across pool growth.
 - **Allocation on the hot path.** The target is zero allocation during steady-
-  state matching. Anything else introduces an unbounded tail.
-- **The common case is not a trade.** In real markets the overwhelming majority
-  of messages are non-marketable adds and cancels. Optimising the crossing path
+  state matching. Anything else introduces an unbounded tail. The order pool now
+  meets this once warmed; the price-level `std::map` still allocates a node per
+  new level, which is a second reason to revisit it.
+- **The common case is not a trade.** In real markets, the overwhelming majority
+  of messages tend to be non-marketable adds and cancels. Optimising the crossing path
   while the add path chases pointers is the classic mistake.
 - **Top-of-book access.** Best bid/ask is read on essentially every operation.
   It should be O(1) and ideally in a hot cache line.
@@ -75,6 +86,12 @@ measurement can find:
   `Quantity::operator-=`, is compiled out entirely under `NDEBUG`.
 - **No floating point anywhere near the book.** Prices are integer ticks
   (DD-009), so comparison is exact and cheap.
+- **Level aggregates are cached, not computed.** `quantity_at` and
+  `order_count_at` never walk a queue; they read fields maintained incrementally
+  on every mutation. Depth is queried far more often than it changes.
+- **The book's public API is handle-based** (DD-018), asserted by test. Nothing
+  outside can hold an iterator into the price-level container, which is what
+  keeps replacing it a private change rather than a rewrite.
 
 ## Environment used for benchmarking
 

@@ -17,6 +17,7 @@ FlashPoint/
 ├── include/flashpoint/         Public headers (the API surface)
 │   ├── types.hpp               Side, Price, Quantity, OrderId
 │   ├── order.hpp               Order — the inbound request
+│   ├── order_book.hpp          OrderBook — price-time priority container
 │   ├── ostream.hpp             Stream inserters; NOT included by the library
 │   └── version.hpp.in          Generated into the build tree by CMake
 ├── src/                        Implementation translation units
@@ -100,6 +101,56 @@ on them and the tests enforce all three:
 timestamp. The representation the book stores for a resting order is a Milestone
 4 design, once the book exists to constrain it (DD-011).
 
-- **Order book**: pending Milestone 4.
+### Order book (Milestone 4)
+
+`OrderBook` holds one instrument's resting orders in price-time priority. It is a
+container, not a matching engine: nothing here prevents a bid resting above the
+best ask, because resolving a cross requires producing a trade, which is the
+engine's job at Milestone 5.
+
+**Structure.** Two layers, chosen independently and for different reasons:
+
+```
+    bids_ : map<Price, Level>            asks_ : map<Price, Level>
+                │   both ascending, so rbegin() is the best bid
+                │   and begin() is the best ask, making each O(1)
+                ▼
+    Level { head, tail, total, count }
+                │   intrusive doubly-linked FIFO queue of
+                │   indices into one pooled vector
+                ▼
+    nodes_ : vector<Node>        Node { id, remaining, prev, next }   24 B
+                ▲
+                └── free_head_ : freed slots form a stack threaded
+                    through the nodes' own `next` field
+
+    index_ : unordered_map<OrderId, Locator{ node, price, side }>
+```
+
+**Complexity.** L is the number of distinct price levels, not orders.
+
+| Operation | Cost | Where the cost is |
+|---|---|---|
+| `add` | O(log L) | level lookup; the append itself is O(1) |
+| `remove` | O(log L) | level lookup; finding and unlinking the order is O(1) |
+| `best_bid` / `best_ask` | O(1) | `rbegin()` / `begin()` |
+| `quantity_at` / `order_count_at` / `front_at` | O(log L) | level lookup; aggregates are cached, so no queue walk |
+
+Every O(log L) term comes from the price-level container and nothing else. This is so that it localises the entire 
+remaining cost to the one component needing to be tested at Milestone 11 (DD-015).
+
+**Two invariants worth naming**, because violating either produces wrong answers
+rather than merely slow ones:
+
+- **Empty levels are erased, never retained.** A retained empty level would make
+  `best_bid()` report a price with no depth behind it.
+- **Level aggregates are maintained incrementally**, so depth queries never walk
+  the queue. They must be updated on every mutation or they silently drift.
+
+**Interface contract.** Every accessor returns a value or an `OrderId`, but never an
+iterator or a reference into the book (DD-018). This is what allows the
+price-level container to be replaced without touching a caller, and it is
+asserted in tests rather than merely documented.
+
 - **Matching engine**: pending Milestone 5.
 - **Event stream**: pending Milestone 9.

@@ -10,7 +10,9 @@
 
 #include <cassert>
 #include <compare>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 namespace flashpoint {
@@ -161,8 +163,8 @@ private:
 /// Zero is reserved to mean "no order", so a default-constructed OrderId is
 /// detectably absent rather than silently colliding with a real one.
 ///
-/// No std::hash specialisation yet. Hashing matters when the book gains its
-/// order-lookup map at Milestone 4.
+/// The std::hash specialisation at the bottom of this header exists because the
+/// book's order index maps ids to their location.
 class OrderId {
 public:
     using Rep = std::uint64_t;
@@ -191,3 +193,14 @@ private:
 };
 
 }  // namespace flashpoint
+
+/// Custom hashing for order id type. There is no attempt to mix
+/// bits: ids are issued densely, and libstdc++/libc++ both use open addressing
+/// with prime bucket counts, which already spreads sequential integers well.
+/// If the order index ever shows clustering, this should be changed.
+template <>
+struct std::hash<flashpoint::OrderId> {
+    [[nodiscard]] std::size_t operator()(flashpoint::OrderId id) const noexcept {
+        return std::hash<flashpoint::OrderId::Rep>{}(id.value());
+    }
+};

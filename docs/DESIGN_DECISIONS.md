@@ -197,7 +197,7 @@ is designed at Milestone 4.
 **Alternatives:** one `Order` carrying both original and remaining quantity with
 the book mutating it, or defining `Order` and `RestingOrder` together now.
 
-**Why:** a single type conflates a request with a book entry. An incoming order has no remaining quantity until the matching engine accepts it. But defining `RestingOrder` today means designing it for a consumer that does not exist. Once the order book exists, it will naturally determine what additional information a resting order needs.
+**Why:** a single type conflates a request with a book entry. An incoming order has no remaining quantity until the matching engine accepts it. But defining `RestingOrder` right now means designing it for a consumer that does not exist. Once the order book exists, it will naturally determine what additional information a resting order needs.
 
 **Consequence:** Milestone 4 necessarily introduces a second order type. That is
 the intended outcome, not an oversight.
@@ -245,3 +245,136 @@ types.
 **Why:** `<ostream>` is an expensive header to include. Pulling it into the core domain types would increase compile times for every translation unit, even though the matching engine itself never formats output.
 
 Without stream operators, GoogleTest prints failed comparisons as raw bytes instead of readable values.
+
+---
+
+## DD-014 — The book is single-instrument and symbol-unaware
+
+**Decision:** `OrderBook` holds one instrument's orders and has no concept of a
+symbol. Version 1 trades a single instrument end to end.
+
+**Alternative:** the engine holding a `map<SymbolId, OrderBook>`, with a symbol
+threaded through every command and event.
+
+**Why:** a book is better as a per-instrument structure.
+Real venues tend to shard by symbol onto independent, single-threaded matching
+partitions, so multi-symbol support is a layer above the book, not a feature
+of it. Because the book is symbol-unaware, that layer is a wrapper around an
+unchanged `OrderBook` whenever it is wanted.
+
+**Cost accepted:** V1's demo trades one instrument.
+
+---
+
+## DD-015 — Price levels stay in a `std::map`, for now
+
+**Decision:** both sides are `std::map<Price, Level>` in ascending order, so the
+best ask is `begin()` and the best bid is `rbegin()`, making both O(1). Potentially replacing this
+is scheduled for Milestone 11, driven by the Milestone 10 profile.
+
+**Alternatives:** a sorted vector; a direct-indexed ladder over the tick range; a
+hybrid ladder-plus-map.
+
+This one was argued at length rather than assumed. The case *against*
+deferring is real: The best solution should be designed first before implementing it, rather than 
+rushing into a less than optimal one.
+
+**What decided it:**
+
+1. **The simple book is a test oracle.** When the structure is replaced, both
+   implementations run the same order flow and must produce identical output.
+   Differential testing is a valuable technique available for a
+   data-structure rewrite where a subtle priority bug is invisible to ordinary
+   unit tests, and it requires the simple version to exist. This milestone
+   already uses the technique against a naive reference model.
+2. **A benchmark without a baseline is not a measurement.** "p99 = 400ns" alone
+   says nothing. "1200ns → 180ns, and here is the profile" is a result, and it
+   requires having built the slow one.
+3. **Domain knowledge names what is *usually* hot, not what is hot here.** The
+   literature says level lookup matters. It does not say it dominates *this*
+   code, where the order index or allocation may well be larger. This serves to 
+   verify the claims for this use case through comparison.
+
+**The condition that makes it safe:** the deferral is only cheap if no caller can
+depend on the container, which is why DD-018 exists and is enforced by tests.
+Without that, this would be a trap rather than a decision.
+
+**Cost accepted:** every level lookup is O(log L) in the number of distinct
+price levels, with a pointer chase per node. `add` and `remove` both carry that
+term right now.
+
+---
+
+## DD-016 — Orders within a level are an intrusive list over a pooled vector
+
+**Decision:** each price level is a doubly-linked FIFO queue whose nodes live in
+one `std::vector<Node>` owned by the book. Freed nodes form a free list threaded
+through the nodes themselves.
+
+**Alternatives:** `std::deque<Node>` per level; `std::list<Node>` per level plus
+an id→iterator index.
+
+**Why not `std::deque`:** cancel-from-middle is O(n). That is a *design* error
+rather than a tuning problem, since real order flow tends to be dominated by cancels, and
+fixing it later would mean rewriting the algorithm and its API.
+
+**Why not `std::list`:** it has the same O(1) complexity as the intrusive
+version, so this is honestly a constant-factor decision, not a complexity one.
+DD-015's own principle argues for deferring it. What tips it is that
+`std::list` allocates per order, and unbounded allocation on the hot path produces an unbounded latency *tail*, 
+which for a matching engine is the characteristic that matters most. That, plus the fact that the answer
+here is genuinely well established rather than empirical, is why this one was
+built now while DD-015 was deferred.
+
+**Why indices rather than pointers:** a `std::uint32_t` index is half the size of
+a pointer, and it survives the pool reallocating as it grows, which is what
+lets the pool start empty instead of demanding a fixed capacity up front. It also
+leaves `OrderBook` copyable, since it holds no self-referential pointers.
+
+**Cost accepted:** manual lifetime management, and pointer surgery with four
+distinct unlink cases. The mitigation is that every CI job runs under ASan and
+UBSan (Milestone 1), and that all four cases plus a differential test cover it.
+
+---
+
+## DD-017 — A node stores only what the matching path reads
+
+**Decision:** `Node` is `{OrderId, Quantity remaining, prev, next}` = 24 bytes.
+Side and price are implied by the level containing it. The order index maps an
+id to a `Locator` carrying the side and price needed to find that level.
+
+**Alternative:** a self-describing node holding side, price and original
+quantity.
+
+**Why:** side and price are identical for every order at a level, so storing them
+per order is pure duplication on the hottest object in the book. Splitting the
+cold bookkeeping into the index minimises queue walk.
+
+**Cost accepted:** a `Node` cannot be interpreted without knowing its level, and
+original quantity is absent. If Milestone 9's events need the original, adding
+one field to a 24-byte struct is cheap.
+
+---
+
+## DD-018 — The book's public interface is handle-based
+
+**Decision:** every accessor returns a value or an `OrderId`. Nothing returns an
+iterator, a reference into the book, or any type derived from the internal
+containers. `tests/order_book_test.cpp` pins this with static assertions on the
+exact return types, plus detection-idiom checks that `OrderBook` exposes no
+`iterator` type and is not iterable.
+
+**Alternative:** exposing level iteration directly, which would be convenient for
+market-data snapshots at Milestone 9.
+
+**Why:** this is the precondition that makes DD-015 a deferral rather than a
+trap. If the engine can hold an iterator into the price-level container, then
+replacing that container stops being a private change and the Milestone 11 work
+becomes a rewrite. Asserting the property in a test rather than a comment means
+it fails at the moment it is violated, when undoing it is still cheap.
+
+`front_at()` exists for a related reason: time priority that cannot be observed
+cannot be tested, and the FIFO guarantee needs to be verified.
+
+**Cost accepted:** market-data snapshots at Milestone 9 will need a purpose-built
+accessor rather than raw iteration.
