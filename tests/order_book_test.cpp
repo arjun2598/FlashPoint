@@ -88,7 +88,7 @@ static_assert(std::is_same_v<decltype(std::declval<ConstBook>().front_at(Side::B
 static_assert(std::is_same_v<decltype(std::declval<ConstBook>().contains(OrderId{})), bool>);
 static_assert(std::is_same_v<decltype(std::declval<ConstBook>().size()), std::size_t>);
 
-// Silently dropping "this id already rests" or "no such order" would be a bug 
+// Silently dropping "this id already rests" or "no such order" would be a bug
 // the engine must not be able to write by accident.
 static_assert(
     std::is_same_v<decltype(std::declval<OrderBook&>().add(std::declval<const Order&>())), bool>);

@@ -42,7 +42,7 @@ namespace flashpoint {
 /// Every accessor returns a value or an `OrderId`. Nothing returns an iterator,
 /// a reference into the book, or any type derived from the internal containers.
 /// This allows the price-level container to potentially be replaced at Milestone 11 if needed
-/// without touching a single caller, and `tests/order_book_test.cpp` pins it with static 
+/// without touching a single caller, and `tests/order_book_test.cpp` pins it with static
 /// assertions so it cannot erode quietly.
 class OrderBook {
 public:
