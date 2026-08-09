@@ -606,3 +606,43 @@ case for every combination as Milestones 7 and 8 add cancel and modify.
 It also strengthens a test that already existed. The randomised engine test
 checked `filled + resting == submitted`; it now checks the three-way identity
 across market orders and all three time-in-force values.
+
+---
+
+## DD-028 — Cancel has its own result type
+
+**Decision:** `MatchingEngine::cancel()` returns
+`CancelResult{status, cancelled}` rather than reusing `SubmitResult` or
+returning a bool.
+
+**Why:** a cancel is not a submission. Reusing `SubmitResult` would leave
+`filled` and `resting` permanently zero, which reads like a bug rather than a
+deliberate shape. A bare bool would lose the quantity.
+
+The quantity matters. An order that filled 30 of 50 before the cancel arrived
+only had 20 left to pull, and that is the number the client needs. `cancel`
+therefore reads `remaining_of()` before removing, not the order's original size.
+
+---
+
+## DD-029 — A cancel that misses reports one status
+
+**Decision:** `CancelStatus::UnknownOrder` covers three cases the engine cannot
+tell apart: the id never existed, the order already filled completely, or it was
+already cancelled.
+
+**Alternative:** keep a record of terminated orders so the engine can distinguish
+them.
+
+**Why:** the book only knows whether an id is currently resting. Telling the
+three apart means retaining every id ever seen, forever, or designing an
+eviction policy. That is an order-history subsystem, and putting it in the
+matching engine would give the hot path unbounded memory growth to serve a
+diagnostic.
+
+**Cost accepted:** a client cancelling an order that just filled gets a less
+helpful reason.
+
+**Separate from this:** a cancel naming `OrderId::kNone` gets its own
+`RejectedInvalidId` status. That is a malformed message rather than a miss, and
+it mirrors the structural check `submit` performs.

@@ -59,6 +59,14 @@ inline std::ostream& operator<<(std::ostream& os, SubmitStatus status) {
     return os << to_string(status);
 }
 
+inline std::ostream& operator<<(std::ostream& os, CancelStatus status) {
+    return os << to_string(status);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const CancelResult& result) {
+    return os << "CancelResult{" << result.status << ", cancelled=" << result.cancelled << '}';
+}
+
 inline std::ostream& operator<<(std::ostream& os, const SubmitResult& result) {
     return os << "SubmitResult{" << result.status << ", filled=" << result.filled
               << ", resting=" << result.resting << ", cancelled=" << result.cancelled << '}';

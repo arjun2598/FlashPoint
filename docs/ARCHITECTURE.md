@@ -236,4 +236,30 @@ before any trade is emitted rather than rolled back afterwards (DD-026).
 accepted order the three quantities sum to what was submitted. `status` says
 whether the order was accepted; the quantities say what became of it.
 
+### Cancel (Milestone 7)
+
+`MatchingEngine::cancel(OrderId)` returns `CancelResult{status, cancelled}`.
+
+The book's `remove()` already existed from Milestone 4, where the need for O(1)
+removal drove the intrusive-queue design. Milestone 7 adds the protocol around
+it: validation, rejection reasons, and reporting.
+
+| Status | Meaning |
+|---|---|
+| `Cancelled` | the order was resting and is now gone |
+| `UnknownOrder` | nothing with that id is resting |
+| `RejectedInvalidId` | the id was `OrderId::kNone`, the reserved "no order" value |
+
+Two things worth knowing:
+
+- **The reported quantity is what was left, not the original size.** An order
+  that filled 30 of 50 before the cancel reports 20. `cancel` reads
+  `remaining_of()` before removing for exactly this reason.
+- **`UnknownOrder` is deliberately coarse.** It covers "never existed", "already
+  filled", and "already cancelled", because the book only knows what is resting
+  now. Distinguishing them needs an order-history subsystem (DD-029).
+
+There is no owner check. Any caller can cancel any order, because `Order` has no
+participant id. Same gap as self-trade prevention, parked for the same reason.
+
 - **Event stream**: pending Milestone 9.

@@ -78,6 +78,55 @@ struct SubmitResult {
     friend constexpr bool operator==(const SubmitResult&, const SubmitResult&) noexcept = default;
 };
 
+/// Outcome of a cancel request.
+enum class CancelStatus : std::uint8_t {
+    /// The order was resting and has been removed.
+    Cancelled,
+
+    /// No order with that id is resting.
+    ///
+    /// This covers three cases the engine cannot tell apart: the id never
+    /// existed, the order already filled completely, or it was already
+    /// cancelled. Distinguishing them means keeping a record of every id ever
+    /// seen, which is an order-history subsystem rather than a matching engine
+    /// concern (DD-029).
+    UnknownOrder,
+
+    /// The id itself is malformed. `OrderId::kNone` is the reserved "no order"
+    /// value, so a cancel naming it can never refer to anything.
+    RejectedInvalidId,
+};
+
+[[nodiscard]] constexpr std::string_view to_string(CancelStatus status) noexcept {
+    switch (status) {
+        case CancelStatus::Cancelled:
+            return "Cancelled";
+        case CancelStatus::UnknownOrder:
+            return "UnknownOrder";
+        case CancelStatus::RejectedInvalidId:
+            return "RejectedInvalidId";
+    }
+    return "Unknown";
+}
+
+/// What happened to a cancel request.
+struct CancelResult {
+    CancelStatus status{CancelStatus::UnknownOrder};
+
+    /// Quantity that was still resting when the cancel took effect, and is now
+    /// gone. This is the *remaining* quantity, not the order's original size: an
+    /// order that filled 30 of 50 before being cancelled reports 20.
+    ///
+    /// Zero unless `status` is Cancelled.
+    Quantity cancelled{};
+
+    [[nodiscard]] constexpr bool succeeded() const noexcept {
+        return status == CancelStatus::Cancelled;
+    }
+
+    friend constexpr bool operator==(const CancelResult&, const CancelResult&) noexcept = default;
+};
+
 /// Venue policy the engine applies to incoming orders.
 struct EngineConfig {
     /// How far past the opposite touch a market order may trade, in ticks.
@@ -207,6 +256,36 @@ public:
         }
 
         return SubmitResult{SubmitStatus::Accepted, filled, Quantity{}, remaining};
+    }
+
+    /// Cancels a resting order.
+    ///
+    /// Returns the quantity that was still resting, which is what the client
+    /// actually pulled. An order that partially filled first reports only the
+    /// part that was left.
+    ///
+    /// Cancelling is idempotent from the caller's point of view: a second cancel
+    /// of the same id reports UnknownOrder rather than failing loudly.
+    ///
+    /// There is no owner check. Anyone may cancel any order, because `Order`
+    /// carries no participant id. That is the same gap as self-trade prevention
+    /// and is parked for the same reason.
+    [[nodiscard]] CancelResult cancel(OrderId id) {
+        if (!id.is_valid()) {
+            return CancelResult{CancelStatus::RejectedInvalidId, Quantity{}};
+        }
+
+        // Read the remaining quantity before removing, since the order is gone
+        // afterwards and this is what the caller needs reported back.
+        const std::optional<Quantity> remaining = book_.remaining_of(id);
+        if (!remaining.has_value()) {
+            return CancelResult{CancelStatus::UnknownOrder, Quantity{}};
+        }
+
+        [[maybe_unused]] const bool removed = book_.remove(id);
+        assert(removed && "remaining_of found the order but remove did not");
+
+        return CancelResult{CancelStatus::Cancelled, *remaining};
     }
 
     /// Read-only view of the book. Its own interface is handle-based (DD-018),

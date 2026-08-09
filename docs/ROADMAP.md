@@ -11,7 +11,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 4   | Limit order book (price levels, FIFO priority)                      | ✔ Complete                     |
 | 5   | Matching engine — limit orders                                      | ✔ Complete                     |
 | 6   | Market orders & time-in-force (IOC / FOK)                           | ✔ Complete                     |
-| 7   | Cancel orders                                                       | ⬜ Not started                 |
+| 7   | Cancel orders                                                       | ✔ Complete                     |
 | 8   | Modify / cancel-replace                                             | ⬜ Not started                 |
 | 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ⬜ Not started                 |
 | 10  | Benchmarks (throughput & latency percentiles)                       | ⬜ Not started                 |
@@ -169,6 +169,32 @@ Decisions recorded as DD-024 through DD-027.
   up, that nothing rests which should not have, that fill-or-kill is all or
   nothing, and that the book is never left crossed.
 
+## Milestone 7 — Cancel orders ✔
+
+**Objective:** the engine-level cancel protocol. The book's removal path already
+existed from Milestone 4, so this milestone is the validation, rejection
+reasons, and reporting around it.
+
+Delivered:
+
+- `MatchingEngine::cancel(OrderId)` returning `CancelResult{status, cancelled}`.
+- `CancelStatus` with `Cancelled`, `UnknownOrder`, and `RejectedInvalidId`.
+- 14 tests in `tests/cancel_test.cpp`, including a randomised submit-and-cancel
+  run.
+
+Decisions recorded as DD-028 and DD-029.
+
+**Verification performed:**
+
+- 130/130 tests pass under ASan/UBSan.
+- **Mutation tested.** Three injected bugs, all caught: cancel reporting zero
+  instead of the remaining quantity (3 failures), cancel reporting success
+  without removing the order (10), and cancel skipping the invalid-id check (1).
+- The randomised test runs 3,000 mixed submits and cancels, checking that every
+  successful cancel reported exactly what the book held immediately beforehand,
+  that a cancel for an order which filled in the meantime reports
+  `UnknownOrder`, and that the book is never left crossed.
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
@@ -197,5 +223,12 @@ Recorded here so they are not silently defaulted:
 - **Self-trade prevention**: Out of scope for V1. Real venues match on a
   participant id and suppress self-crosses; adding it means putting a client id
   on `Order`, which the demo would not exercise.
+- **Owner checks on cancel**: Out of scope for V1, and blocked on the same
+  missing participant id. Any caller can currently cancel any order.
+- **Mass cancel**: Out of scope for V1. Without a participant id there is nobody
+  to scope it to, so it would mean cancelling every resting order in the book,
+  which is a venue-halt operation rather than a client one.
+- **Richer cancel rejection reasons**: Would need an order-history subsystem
+  tracking terminated ids (DD-029). Belongs in front of the engine, not in it.
 - **Trade sequence numbers**: To be decided at Milestone 9, which owns the event
   stream and therefore the counter (DD-020).
