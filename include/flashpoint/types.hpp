@@ -56,6 +56,67 @@ enum class Side : std::uint8_t {
 }
 
 // ---------------------------------------------------------------------------
+// OrderType
+// ---------------------------------------------------------------------------
+
+/// How an order's acceptable price is determined.
+enum class OrderType : std::uint8_t {
+    /// Trades only at the order's own price or better.
+    Limit = 0,
+
+    /// Trades at whatever the book offers, up to a protection price the venue
+    /// derives from the opposite touch. The order's `price` field is unused.
+    Market = 1,
+};
+
+[[nodiscard]] constexpr bool is_valid(OrderType type) noexcept {
+    return type == OrderType::Limit || type == OrderType::Market;
+}
+
+[[nodiscard]] constexpr std::string_view to_string(OrderType type) noexcept {
+    switch (type) {
+        case OrderType::Limit:
+            return "Limit";
+        case OrderType::Market:
+            return "Market";
+    }
+    return "Invalid";
+}
+
+// ---------------------------------------------------------------------------
+// TimeInForce
+// ---------------------------------------------------------------------------
+
+/// What happens to the part of an order that does not trade immediately.
+enum class TimeInForce : std::uint8_t {
+    /// Rest the remainder in the book until it trades or is cancelled.
+    GoodTillCancel = 0,
+
+    /// Trade what is available now, cancel the rest.
+    ImmediateOrCancel = 1,
+
+    /// Trade the whole quantity now, or trade none of it.
+    FillOrKill = 2,
+};
+
+[[nodiscard]] constexpr bool is_valid(TimeInForce tif) noexcept {
+    return tif == TimeInForce::GoodTillCancel || tif == TimeInForce::ImmediateOrCancel ||
+           tif == TimeInForce::FillOrKill;
+}
+
+[[nodiscard]] constexpr std::string_view to_string(TimeInForce tif) noexcept {
+    switch (tif) {
+        case TimeInForce::GoodTillCancel:
+            return "GoodTillCancel";
+        case TimeInForce::ImmediateOrCancel:
+            return "ImmediateOrCancel";
+        case TimeInForce::FillOrKill:
+            return "FillOrKill";
+    }
+    return "Invalid";
+}
+
+// ---------------------------------------------------------------------------
 // Price
 // ---------------------------------------------------------------------------
 

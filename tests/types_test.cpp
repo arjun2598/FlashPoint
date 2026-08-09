@@ -225,5 +225,51 @@ TEST(OrderId, ComparesByValue) {
     EXPECT_LT(OrderId{42}, OrderId{43});
 }
 
+// ---------------------------------------------------------------------------
+// OrderType and TimeInForce
+// ---------------------------------------------------------------------------
+
+TEST(OrderType, DefinedEnumeratorsAreValid) {
+    EXPECT_TRUE(is_valid(OrderType::Limit));
+    EXPECT_TRUE(is_valid(OrderType::Market));
+}
+
+// Same reasoning as Side: an enum class does not constrain its range, and
+// decoding a malformed message is how an out-of-range value appears.
+TEST(OrderType, ValueOutsideTheEnumeratorsIsRejected) {
+    EXPECT_FALSE(is_valid(static_cast<OrderType>(2)));
+    EXPECT_FALSE(is_valid(static_cast<OrderType>(255)));
+}
+
+TEST(OrderType, ToStringNamesBothTypesAndFlagsGarbage) {
+    EXPECT_EQ(to_string(OrderType::Limit), "Limit");
+    EXPECT_EQ(to_string(OrderType::Market), "Market");
+    EXPECT_EQ(to_string(static_cast<OrderType>(99)), "Invalid");
+}
+
+TEST(TimeInForce, DefinedEnumeratorsAreValid) {
+    EXPECT_TRUE(is_valid(TimeInForce::GoodTillCancel));
+    EXPECT_TRUE(is_valid(TimeInForce::ImmediateOrCancel));
+    EXPECT_TRUE(is_valid(TimeInForce::FillOrKill));
+}
+
+TEST(TimeInForce, ValueOutsideTheEnumeratorsIsRejected) {
+    EXPECT_FALSE(is_valid(static_cast<TimeInForce>(3)));
+    EXPECT_FALSE(is_valid(static_cast<TimeInForce>(255)));
+}
+
+TEST(TimeInForce, ToStringNamesEachValueAndFlagsGarbage) {
+    EXPECT_EQ(to_string(TimeInForce::GoodTillCancel), "GoodTillCancel");
+    EXPECT_EQ(to_string(TimeInForce::ImmediateOrCancel), "ImmediateOrCancel");
+    EXPECT_EQ(to_string(TimeInForce::FillOrKill), "FillOrKill");
+    EXPECT_EQ(to_string(static_cast<TimeInForce>(99)), "Invalid");
+}
+
+// Both are one byte, so together they fit in Order's existing padding.
+TEST(OrderType, BothEnumsOccupyASingleByte) {
+    EXPECT_EQ(sizeof(OrderType), 1U);
+    EXPECT_EQ(sizeof(TimeInForce), 1U);
+}
+
 }  // namespace
 }  // namespace flashpoint

@@ -21,6 +21,7 @@ add_executable(flashpoint_tests
     matching_engine_test.cpp
     order_book_test.cpp
     order_test.cpp
+    time_in_force_test.cpp
     types_test.cpp
     version_test.cpp)
 

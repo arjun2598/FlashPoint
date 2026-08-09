@@ -10,7 +10,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 3   | Core domain types (`Price`, `Quantity`, `OrderId`, `Side`, `Order`) | ✔ Complete                     |
 | 4   | Limit order book (price levels, FIFO priority)                      | ✔ Complete                     |
 | 5   | Matching engine — limit orders                                      | ✔ Complete                     |
-| 6   | Market orders & time-in-force (IOC / FOK)                           | ⬜ Not started                 |
+| 6   | Market orders & time-in-force (IOC / FOK)                           | ✔ Complete                     |
 | 7   | Cancel orders                                                       | ⬜ Not started                 |
 | 8   | Modify / cancel-replace                                             | ⬜ Not started                 |
 | 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ⬜ Not started                 |
@@ -134,6 +134,40 @@ Decisions recorded as DD-019 through DD-023.
 - The randomised test checks conservation: `filled + resting` always equals the
   submitted quantity, recorded trades account for exactly `filled`, and
   the engine never leaves a crossed book.
+
+## Milestone 6 — Market orders and time-in-force ✔
+
+**Objective:** support market orders with venue protection, and the three
+time-in-force rules.
+
+Delivered:
+
+- `OrderType` and `TimeInForce` in `types.hpp`, and both as fields on `Order`.
+  They fit in the existing padding, so `sizeof(Order)` is still 32.
+- `Order::limit()` and `Order::market()` factories.
+- `EngineConfig::market_protection_ticks`, and the effective-limit resolution
+  that gives market and limit orders one shared matching loop.
+- `OrderBook::quantity_available()`, which fill-or-kill uses to decide before
+  emitting anything.
+- `SubmitResult::cancelled`, making `filled + resting + cancelled` equal the
+  submitted quantity.
+- 40 new tests, mostly in `tests/time_in_force_test.cpp`.
+
+Decisions recorded as DD-024 through DD-027.
+
+**Verification performed:**
+
+- 116/116 tests pass under ASan/UBSan.
+- **Mutation tested.** Five injected bugs, all caught: the protection band
+  subtracted instead of added for buys (5 failures), IOC and FOK limit orders
+  resting instead of cancelling (3), the fill-or-kill feasibility comparison off
+  by one (4), availability skipping the level exactly at the limit (4), and the
+  saturation guard disabled so protection overflows (1, caught by UBSan in the
+  price-range test).
+- The randomised test mixes limit and market orders across all three
+  time-in-force values and checks after every submission that the quantities add
+  up, that nothing rests which should not have, that fill-or-kill is all or
+  nothing, and that the book is never left crossed.
 
 ## Parked decisions
 

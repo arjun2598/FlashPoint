@@ -24,6 +24,14 @@ inline std::ostream& operator<<(std::ostream& os, Side side) {
     return os << to_string(side);
 }
 
+inline std::ostream& operator<<(std::ostream& os, OrderType type) {
+    return os << to_string(type);
+}
+
+inline std::ostream& operator<<(std::ostream& os, TimeInForce tif) {
+    return os << to_string(tif);
+}
+
 inline std::ostream& operator<<(std::ostream& os, Price price) {
     // The trailing 't' is because these are ticks, not currency.
     return os << price.ticks() << 't';
@@ -38,8 +46,8 @@ inline std::ostream& operator<<(std::ostream& os, OrderId id) {
 }
 
 inline std::ostream& operator<<(std::ostream& os, const Order& order) {
-    return os << "Order{" << order.id() << ", " << order.side() << ", " << order.price() << ", "
-              << order.quantity() << '}';
+    return os << "Order{" << order.id() << ", " << order.side() << ", " << order.type() << ", "
+              << order.price() << ", " << order.quantity() << ", " << order.time_in_force() << '}';
 }
 
 inline std::ostream& operator<<(std::ostream& os, const Trade& trade) {
@@ -53,7 +61,7 @@ inline std::ostream& operator<<(std::ostream& os, SubmitStatus status) {
 
 inline std::ostream& operator<<(std::ostream& os, const SubmitResult& result) {
     return os << "SubmitResult{" << result.status << ", filled=" << result.filled
-              << ", resting=" << result.resting << '}';
+              << ", resting=" << result.resting << ", cancelled=" << result.cancelled << '}';
 }
 
 }  // namespace flashpoint

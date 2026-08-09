@@ -78,6 +78,19 @@ public:
     /// time priority says fills next. Nullopt if the level is empty.
     [[nodiscard]] std::optional<OrderId> front_at(Side side, Price price) const;
 
+    /// Total resting quantity an aggressor could trade against.
+    ///
+    /// `aggressor_side` is the side of the incoming order, so a Buy is measured
+    /// against the asks. Sums every level priced at `limit` or better, from the
+    /// aggressor's point of view: asks at or below the limit, bids at or above.
+    ///
+    /// Fill-or-kill needs this. It has to know whether the whole quantity can
+    /// trade before it emits anything, because a trade handed to the sink cannot
+    /// be taken back.
+    ///
+    /// Costs one pass over the levels inside the limit.
+    [[nodiscard]] Quantity quantity_available(Side aggressor_side, Price limit) const;
+
     /// Unfilled quantity of a resting order, or nullopt if it is not present.
     [[nodiscard]] std::optional<Quantity> remaining_of(OrderId id) const;
 

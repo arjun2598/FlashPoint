@@ -204,6 +204,31 @@ std::optional<OrderId> OrderBook::front_at(Side side, Price price) const {
     return nodes_[level->head].id;
 }
 
+Quantity OrderBook::quantity_available(Side aggressor_side, Price limit) const {
+    Quantity total{};
+
+    if (aggressor_side == Side::Buy) {
+        // Asks are stored ascending, so walking forward visits the cheapest
+        // first. Stop at the first level above the limit.
+        for (const auto& [price, level] : asks_) {
+            if (price > limit) {
+                break;
+            }
+            total += level.total;
+        }
+    } else {
+        // Bids are also ascending, so walk backwards to visit the highest first.
+        for (auto it = bids_.rbegin(); it != bids_.rend(); ++it) {
+            if (it->first < limit) {
+                break;
+            }
+            total += it->second.total;
+        }
+    }
+
+    return total;
+}
+
 std::optional<Quantity> OrderBook::remaining_of(OrderId id) const {
     const auto entry = index_.find(id);
     if (entry == index_.end()) {

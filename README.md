@@ -9,14 +9,18 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 5 of 13 complete — the build system, CI,
-> the core domain types, the order book, and limit-order matching are in place.
-> Market orders and time-in-force are next. See
-> [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
-> now, not what is planned.
+> **Status: in development.** Milestone 6 of 13 complete — the build system, CI,
+> the core domain types, the order book, and matching for limit and market
+> orders are in place. Cancel is next. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> This README describes what exists right now, not what is planned.
 
 ## What exists currently
 
+- **Market orders and time-in-force.** Market orders trade up to a
+  venue-configured protection price derived from the opposite touch, so one
+  cannot sweep a thin book to an arbitrary price. GoodTillCancel rests,
+  ImmediateOrCancel cancels its remainder, and FillOrKill checks it can fill
+  before emitting any trade.
 - **Matching engine** for limit orders at price-time priority. Sweeps multiple
   price levels, executes at the resting order's price so improvement accrues to
   the aggressor, preserves queue position across partial fills, and rests the
@@ -30,7 +34,7 @@ every commit.
   Strong types, not typedefs: passing a quantity where a price belongs is a
   compile error, and `Order` is pinned at 32 bytes so two share a cache line.
 - CMake build producing a `flashpoint` static library and a GoogleTest suite,
-  76 tests running under ASan/UBSan, including differential and randomised
+  116 tests running under ASan/UBSan, including differential and randomised
   invariant tests for both the book and the engine.
 - Three build presets: Debug with ASan/UBSan, Release, and RelWithDebInfo.
 - `-Werror` with an aggressive warning set including `-Wconversion`.
@@ -39,9 +43,8 @@ every commit.
 
 ## Planned
 
-Price-time priority matching for limit and market orders, IOC and FOK
-time-in-force, cancel and cancel-replace, an event stream with L2 market data,
-a benchmark suite reporting p50/p99/p99.9 latency, and a replay demo.
+Cancel and cancel-replace, an event stream with L2 market data, a benchmark
+suite reporting p50/p99/p99.9 latency, and a replay demo.
 
 ## Quick start
 

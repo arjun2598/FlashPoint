@@ -397,6 +397,70 @@ TEST(OrderBook, RefillingAfterCompleteDrainReusesThePoolCorrectly) {
 }
 
 // ---------------------------------------------------------------------------
+// quantity_available
+//
+// Fill-or-kill needs to know how much it could trade before it trades anything.
+// The side passed in is the aggressor's, so a Buy is measured against the asks.
+// ---------------------------------------------------------------------------
+
+TEST(QuantityAvailable, IsZeroOnAnEmptyBook) {
+    const OrderBook book;
+
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{100}), Quantity{});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{100}), Quantity{});
+}
+
+TEST(QuantityAvailable, SumsAsksAtOrBelowABuyersLimit) {
+    OrderBook book;
+    ASSERT_TRUE(book.add(sell(1, 100, 10)));
+    ASSERT_TRUE(book.add(sell(2, 101, 20)));
+    ASSERT_TRUE(book.add(sell(3, 105, 40)));
+
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{99}), Quantity{});
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{100}), Quantity{10});
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{101}), Quantity{30});
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{104}), Quantity{30});
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{105}), Quantity{70});
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{999}), Quantity{70});
+}
+
+TEST(QuantityAvailable, SumsBidsAtOrAboveASellersLimit) {
+    OrderBook book;
+    ASSERT_TRUE(book.add(buy(1, 100, 10)));
+    ASSERT_TRUE(book.add(buy(2, 99, 20)));
+    ASSERT_TRUE(book.add(buy(3, 95, 40)));
+
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{101}), Quantity{});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{100}), Quantity{10});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{99}), Quantity{30});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{96}), Quantity{30});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{95}), Quantity{70});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{-999}), Quantity{70});
+}
+
+// Only the opposite side counts. A buyer's own resting bids are not liquidity.
+TEST(QuantityAvailable, IgnoresTheAggressorsOwnSide) {
+    OrderBook book;
+    ASSERT_TRUE(book.add(buy(1, 100, 50)));
+
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{200}), Quantity{});
+    EXPECT_EQ(book.quantity_available(Side::Sell, Price{100}), Quantity{50});
+}
+
+TEST(QuantityAvailable, TracksRemovalsAndPartialFills) {
+    OrderBook book;
+    ASSERT_TRUE(book.add(sell(1, 100, 30)));
+    ASSERT_TRUE(book.add(sell(2, 100, 20)));
+    ASSERT_EQ(book.quantity_available(Side::Buy, Price{100}), Quantity{50});
+
+    ASSERT_TRUE(book.reduce(OrderId{1}, Quantity{10}));
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{100}), Quantity{40});
+
+    ASSERT_TRUE(book.remove(OrderId{2}));
+    EXPECT_EQ(book.quantity_available(Side::Buy, Price{100}), Quantity{20});
+}
+
+// ---------------------------------------------------------------------------
 // Differential test against a reference model
 // ---------------------------------------------------------------------------
 

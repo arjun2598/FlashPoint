@@ -54,8 +54,9 @@ static_assert(make_order().id() == OrderId{7});
 // milestone adds a field, this fails and forces the cost to be an explicit
 // decision rather than an accident.
 //
-// 8 (OrderId) + 8 (Price) + 8 (Quantity) + 1 (Side) = 25 bytes of payload,
-// rounded to 32 by the 8-byte alignment.
+// 8 (OrderId) + 8 (Price) + 8 (Quantity) + 1 (Side) + 1 (OrderType)
+// + 1 (TimeInForce) = 27 bytes of payload, rounded to 32 by the 8-byte
+// alignment.
 TEST(Order, FitsInThirtyTwoBytesSoTwoShareACacheLine) {
     EXPECT_EQ(sizeof(Order), 32U);
     EXPECT_EQ(alignof(Order), 8U);
@@ -125,6 +126,77 @@ TEST(Order, SideOutsideTheEnumeratorsMakesTheOrderInvalid) {
 TEST(Order, PriceNeverAffectsStructuralValidity) {
     EXPECT_TRUE((Order{OrderId{7}, Side::Buy, Price{0}, Quantity{500}}.is_valid()));
     EXPECT_TRUE((Order{OrderId{7}, Side::Buy, Price{-500}, Quantity{500}}.is_valid()));
+}
+
+// ---------------------------------------------------------------------------
+// Order type and time-in-force
+// ---------------------------------------------------------------------------
+
+TEST(Order, DefaultsToAGoodTillCancelLimitOrder) {
+    const Order order{OrderId{7}, Side::Buy, Price{100}, Quantity{10}};
+
+    EXPECT_EQ(order.type(), OrderType::Limit);
+    EXPECT_EQ(order.time_in_force(), TimeInForce::GoodTillCancel);
+}
+
+TEST(Order, LimitFactoryBuildsALimitOrder) {
+    const Order order = Order::limit(OrderId{7}, Side::Sell, Price{100}, Quantity{10},
+                                     TimeInForce::ImmediateOrCancel);
+
+    EXPECT_EQ(order.type(), OrderType::Limit);
+    EXPECT_EQ(order.price(), Price{100});
+    EXPECT_EQ(order.time_in_force(), TimeInForce::ImmediateOrCancel);
+    EXPECT_TRUE(order.is_valid());
+}
+
+// A market order has no price, so the factory leaves the field at zero rather
+// than asking the caller for a value that would be ignored.
+TEST(Order, MarketFactoryLeavesThePriceAtZeroAndDefaultsToIoc) {
+    const Order order = Order::market(OrderId{7}, Side::Buy, Quantity{10});
+
+    EXPECT_EQ(order.type(), OrderType::Market);
+    EXPECT_EQ(order.price(), Price{});
+    EXPECT_EQ(order.time_in_force(), TimeInForce::ImmediateOrCancel);
+    EXPECT_TRUE(order.is_valid());
+}
+
+// A market order cannot rest, so GoodTillCancel has no meaning for one.
+TEST(Order, MarketOrderWithGoodTillCancelIsInvalid) {
+    EXPECT_FALSE(
+        Order::market(OrderId{7}, Side::Buy, Quantity{10}, TimeInForce::GoodTillCancel).is_valid());
+}
+
+TEST(Order, MarketOrderWithImmediateOrCancelOrFillOrKillIsValid) {
+    EXPECT_TRUE(Order::market(OrderId{7}, Side::Buy, Quantity{10}, TimeInForce::ImmediateOrCancel)
+                    .is_valid());
+    EXPECT_TRUE(
+        Order::market(OrderId{7}, Side::Buy, Quantity{10}, TimeInForce::FillOrKill).is_valid());
+}
+
+TEST(Order, EveryTimeInForceIsValidOnALimitOrder) {
+    for (const TimeInForce tif :
+         {TimeInForce::GoodTillCancel, TimeInForce::ImmediateOrCancel, TimeInForce::FillOrKill}) {
+        EXPECT_TRUE(Order::limit(OrderId{7}, Side::Buy, Price{100}, Quantity{10}, tif).is_valid())
+            << to_string(tif);
+    }
+}
+
+TEST(Order, OutOfRangeTypeOrTimeInForceMakesTheOrderInvalid) {
+    EXPECT_FALSE((Order{OrderId{7}, Side::Buy, Price{100}, Quantity{10}, static_cast<OrderType>(7),
+                        TimeInForce::GoodTillCancel}
+                      .is_valid()));
+    EXPECT_FALSE((Order{OrderId{7}, Side::Buy, Price{100}, Quantity{10}, OrderType::Limit,
+                        static_cast<TimeInForce>(9)}
+                      .is_valid()));
+}
+
+TEST(Order, EqualityComparesTypeAndTimeInForce) {
+    const Order base = Order::limit(OrderId{7}, Side::Buy, Price{100}, Quantity{10});
+
+    EXPECT_NE(base, Order::limit(OrderId{7}, Side::Buy, Price{100}, Quantity{10},
+                                 TimeInForce::ImmediateOrCancel));
+    EXPECT_NE(base, (Order{OrderId{7}, Side::Buy, Price{100}, Quantity{10}, OrderType::Market,
+                           TimeInForce::ImmediateOrCancel}));
 }
 
 }  // namespace

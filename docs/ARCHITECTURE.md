@@ -196,4 +196,44 @@ on every iteration.
 (DD-019), so a non-marketable order costs nothing and a sweep allocates nothing.
 This is the seam Milestone 9's event stream will attach to.
 
+### Market orders and time-in-force (Milestone 6)
+
+`Order` carries an `OrderType` and a `TimeInForce`. Both are one byte and fit in
+`Order`'s existing padding, so it is still 32 bytes.
+
+**Effective limit.** The engine resolves one price before matching starts:
+
+| Order type | Effective limit |
+|---|---|
+| Limit | the order's own price |
+| Market | opposite touch at arrival, ± `market_protection_ticks` |
+
+The matching loop then runs unchanged for both. A market order with nothing
+resting opposite has no touch to measure from and nothing to trade against, so
+it is cancelled in full.
+
+Protection saturates at the ends of the price range rather than wrapping.
+Overflowing a signed integer is undefined behaviour, and a test drives a market
+order against a level at the maximum representable price to prove the guard
+holds.
+
+**What happens to the remainder:**
+
+| Time-in-force | Remainder |
+|---|---|
+| GoodTillCancel | rests in the book |
+| ImmediateOrCancel | cancelled |
+| FillOrKill | the order fills completely or does nothing |
+
+Market orders can never rest, so `Market` + `GoodTillCancel` is rejected as
+malformed.
+
+**Fill-or-kill** checks `OrderBook::quantity_available()` before matching. A
+trade handed to the sink cannot be withdrawn, so the decision has to be made
+before any trade is emitted rather than rolled back afterwards (DD-026).
+
+**Reporting.** `SubmitResult` is `{status, filled, resting, cancelled}`. For any
+accepted order the three quantities sum to what was submitted. `status` says
+whether the order was accepted; the quantities say what became of it.
+
 - **Event stream**: pending Milestone 9.

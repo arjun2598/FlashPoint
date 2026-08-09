@@ -495,3 +495,114 @@ primitives into the matching loop, which is the hottest code in the project.
 when the matching logic changes. With one engine and a handful of consumers, that
 is not yet a real cost; if it becomes one, a non-template `submit` taking an
 erased sink can be added _alongside_ the template for cold callers.
+
+---
+
+## DD-024 — Order type and time-in-force are fields on `Order`
+
+**Decision:** `Order` gains `OrderType` (Limit, Market) and `TimeInForce`
+(GoodTillCancel, ImmediateOrCancel, FillOrKill). Both are `enum class` on
+`std::uint8_t`.
+
+**Why this costs nothing:** `Order` was 25 bytes of payload inside a 32-byte
+object. Two more bytes makes 27, which still rounds to 32. `sizeof(Order)` is
+unchanged and the layout test in `tests/order_test.cpp` did not need editing.
+
+**Validation:** a market order with GoodTillCancel is rejected as malformed. A
+market order has no price, so it cannot rest, so the combination has no meaning.
+This lives in `Order::is_valid()` because it is a property of the message, not
+venue policy.
+
+**Construction:** `Order::limit()` and `Order::market()` factories were added
+alongside the general constructor. `Order::market()` takes no price, which stops
+callers from supplying one that would be ignored.
+
+---
+
+## DD-025 — Market orders get a venue-configured protection price
+
+**Decision:** `EngineConfig::market_protection_ticks` sets how far past the
+opposite touch a market order may trade. A market buy with a best ask of 100 and
+a band of 5 gets an effective limit of 105. Anything it cannot fill by then is
+cancelled.
+
+**Alternatives:** let the client supply a protection price in `Order::price`; or
+have no protection at all.
+
+**Why:** without protection, a market order into a thin book can sweep to an
+arbitrary price. Real venues guard against this; CME calls it
+market-with-protection.
+
+A client-supplied protection price was rejected because it makes a market order
+functionally identical to an ImmediateOrCancel limit order, leaving
+`OrderType::Market` as a label rather than a behaviour. A venue band keeps the
+distinction real: the client does not need to know the current price to send one.
+
+**How it shapes the code:** the effective limit is resolved once, before the
+matching loop:
+
+```
+effective_limit = (type == Market) ? protection_price(side) : order.price()
+```
+
+The loop is then unchanged for both order types. This was the better half of two
+options considered at the start of Milestone 6: a branch inside the loop, or
+storing market orders as a synthetic extreme limit price. Protection gives the
+single code path of the second without the fake price, because the protection
+price is a real number derived from a real touch.
+
+**Details worth knowing:**
+
+- Protection is measured from the touch when the order arrives, not
+  re-evaluated per level as the sweep progresses.
+- If the opposite side is empty there is no touch, and nothing to trade against
+  either. The order is cancelled in full.
+- `protection_price` saturates rather than wrapping. A touch near the end of the
+  price range would otherwise overflow a signed integer, which is undefined
+  behaviour.
+
+**Cost accepted:** the engine now carries venue configuration. It is one integer.
+
+---
+
+## DD-026 — Fill-or-kill checks feasibility before matching
+
+**Decision:** a FillOrKill order first asks the book how much it could trade at
+its limit or better, via `OrderBook::quantity_available()`. If that is less than
+the order quantity, nothing happens at all.
+
+**Alternatives:** match optimistically and roll back if it fell short; or expose
+level iteration so the engine can walk the book itself.
+
+**Why not rollback:** trades are handed to the sink as they occur, and a trade
+already delivered cannot be withdrawn. Undoing a partial sweep correctly is
+harder than checking first, and any bug in it produces phantom executions.
+
+**Why not level iteration:** that is the cursor turned down in DD-022, for the
+same reason. `quantity_available` answers one question and exposes nothing.
+
+**Cost accepted:** a FillOrKill order makes one extra pass over the levels within
+its limit. Only FillOrKill pays it.
+
+The engine asserts after matching that a FillOrKill order which passed the check
+did in fact fill completely. The two paths have to agree, and an assertion is
+cheaper than discovering they do not in production.
+
+---
+
+## DD-027 — `SubmitResult` gains a `cancelled` quantity
+
+**Decision:** `SubmitResult` becomes `{status, filled, resting, cancelled}`, with
+`filled + resting + cancelled` equal to the submitted quantity for any accepted
+order.
+
+**Alternative:** new status codes such as `Cancelled` or
+`PartiallyFilledThenCancelled`.
+
+**Why:** `status` answers whether the order was accepted. The quantities answer
+what became of it. Keeping those separate stops the status list from needing a
+case for every combination as Milestones 7 and 8 add cancel and modify.
+
+It also strengthens a test that already existed. The randomised engine test
+checked `filled + resting == submitted`; it now checks the three-way identity
+across market orders and all three time-in-force values.
