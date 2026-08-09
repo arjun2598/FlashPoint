@@ -18,6 +18,7 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(flashpoint_tests
+    matching_engine_test.cpp
     order_book_test.cpp
     order_test.cpp
     types_test.cpp

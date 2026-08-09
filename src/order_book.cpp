@@ -204,6 +204,36 @@ std::optional<OrderId> OrderBook::front_at(Side side, Price price) const {
     return nodes_[level->head].id;
 }
 
+std::optional<Quantity> OrderBook::remaining_of(OrderId id) const {
+    const auto entry = index_.find(id);
+    if (entry == index_.end()) {
+        return std::nullopt;
+    }
+    return nodes_[entry->second.node].remaining;
+}
+
+bool OrderBook::reduce(OrderId id, Quantity by) {
+    const auto entry = index_.find(id);
+    if (entry == index_.end()) {
+        return false;
+    }
+
+    const Locator locator = entry->second;
+    Node& node = nodes_[locator.node];
+
+    assert(by > Quantity{} && by < node.remaining &&
+           "reduce() requires 0 < by < remaining; use remove() to retire an order entirely");
+
+    node.remaining -= by;
+
+    Levels& levels = levels_for(locator.side);
+    const auto level_it = levels.find(locator.price);
+    assert(level_it != levels.end() && "index referenced a level that does not exist");
+    level_it->second.total -= by;
+
+    return true;
+}
+
 bool OrderBook::contains(OrderId id) const {
     return index_.contains(id);
 }

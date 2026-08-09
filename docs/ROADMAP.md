@@ -9,7 +9,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 2   | Unit test harness & CI                                              | ✔ Complete (delivered with M1) |
 | 3   | Core domain types (`Price`, `Quantity`, `OrderId`, `Side`, `Order`) | ✔ Complete                     |
 | 4   | Limit order book (price levels, FIFO priority)                      | ✔ Complete                     |
-| 5   | Matching engine — limit orders                                      | ⬜ Not started                 |
+| 5   | Matching engine — limit orders                                      | ✔ Complete                     |
 | 6   | Market orders & time-in-force (IOC / FOK)                           | ⬜ Not started                 |
 | 7   | Cancel orders                                                       | ⬜ Not started                 |
 | 8   | Modify / cancel-replace                                             | ⬜ Not started                 |
@@ -105,6 +105,36 @@ Delivered:
   (4 failures), the queue built LIFO instead of FIFO (8), empty levels never
   erased (3), and `unlink` skipping the `next->prev` fixup (3).
 
+## Milestone 5 — Matching engine, limit orders ✔
+
+**Objective:** cross an incoming limit order against the book at price-time
+priority, emit trades, rest the remainder.
+
+Delivered:
+
+- `include/flashpoint/trade.hpp` — `Trade`, one execution.
+- `include/flashpoint/matching_engine.hpp` — `MatchingEngine`, header-only
+  because `submit` is templated on the trade sink (DD-023).
+- `SubmitStatus` / `SubmitResult`, and the structural-validity check at the
+  engine boundary that DD-012 promised at Milestone 3.
+- `OrderBook::remaining_of()` and `OrderBook::reduce()` — the two primitives
+  matching needs. `reduce` preserves queue position.
+- 20 tests, the last asserting two invariants after every submission across
+  3,000 randomised orders.
+
+Decisions recorded as DD-019 through DD-023.
+
+**Verification performed:**
+
+- 76/76 tests pass under ASan/UBSan.
+- **Mutation tested.** Five injected bugs, all caught: trades printing at the
+  aggressor's limit instead of the maker's price (5 failures), equality no
+  longer crossing (11), buys aggressing against bids instead of asks (14), maker
+  and taker transposed (5), and a partial fill wiping the maker entirely (3).
+- The randomised test checks conservation: `filled + resting` always equals the
+  submitted quantity, recorded trades account for exactly `filled`, and
+  the engine never leaves a crossed book.
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
@@ -120,9 +150,18 @@ Recorded here so they are not silently defaulted:
   order index (DD-017).
 - ~~**`std::hash<OrderId>`**~~: Added at Milestone 4, now that the order index
   needs it.
-- **Price-level container**: Deferred to later. `std::map` as of now; a ladder or hybrid is 
+- **Price-level container**: Deferred to later. `std::map` as of now; a ladder or hybrid is
   the likely replacement. The reasoning, including the case against deferring, is DD-015.
   The deferral is safe only because DD-018 keeps the public API handle-based, so
   no caller can depend on the container, and a test enforces that.
 - **Original quantity on a resting order**: To be decided at Milestone 9. Events
   may need it; if so it is one extra field on `Node` (DD-017).
+- **Level cursor for sweeps**: To be reconsidered at Milestone 11. A sweep
+  currently performs one price lookup per fill rather than per level (DD-022).
+  Only worth doing if Milestone 10 shows those lookups dominating, and then as an
+  opaque handle rather than a leaked iterator.
+- **Self-trade prevention**: Out of scope for V1. Real venues match on a
+  participant id and suppress self-crosses; adding it means putting a client id
+  on `Order`, which the demo would not exercise.
+- **Trade sequence numbers**: To be decided at Milestone 9, which owns the event
+  stream and therefore the counter (DD-020).

@@ -78,6 +78,20 @@ public:
     /// time priority says fills next. Nullopt if the level is empty.
     [[nodiscard]] std::optional<OrderId> front_at(Side side, Price price) const;
 
+    /// Unfilled quantity of a resting order, or nullopt if it is not present.
+    [[nodiscard]] std::optional<Quantity> remaining_of(OrderId id) const;
+
+    /// Reduces a resting order's unfilled quantity by `by`, as a partial fill
+    /// does. Returns false if no such order is resting.
+    ///
+    /// Queue position is preserved. A partially filled order keeps its place
+    /// in line and does not go to the back.
+    ///
+    /// Precondition: `0 < by < remaining_of(id)`. Retiring an order entirely is
+    /// `remove()`, kept separate so the caller states which it
+    /// means rather than having the book infer it.
+    [[nodiscard]] bool reduce(OrderId id, Quantity by);
+
     [[nodiscard]] bool contains(OrderId id) const;
 
     /// Total number of resting orders across both sides.

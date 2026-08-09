@@ -1,0 +1,53 @@
+#pragma once
+
+#include "flashpoint/types.hpp"
+
+#include <type_traits>
+
+namespace flashpoint {
+
+/// A single execution: one resting order matched against one incoming order.
+/// A sweep that fills against four resting orders produces four Trades, not one.
+///
+/// This is a plain aggregate rather than a class with a constructor, and that is
+/// deliberate. `maker_id` and `taker_id` are both `OrderId`, so a positional
+/// constructor would let them be transposed silently. This is a potential failure that
+/// strong types cannot prevent, because the two arguments genuinely are the same
+/// type. Designated initialisers put the field name at the call site:
+///
+///     Trade{.maker_id = resting, .taker_id = incoming, ...}
+///
+/// which makes the mistake visible where it would be made (DD-021).
+struct Trade {
+    /// The order that was already resting and provided liquidity.
+    OrderId maker_id{};
+
+    /// The incoming order that crossed the spread and took liquidity.
+    OrderId taker_id{};
+
+    /// The execution price, which is always the maker's price. Price
+    /// improvement goes to the aggressor: a buy limit at 105 lifting an ask
+    /// resting at 100 trades at 100.
+    Price price{};
+
+    /// Quantity executed: the smaller of what each side had remaining.
+    Quantity quantity{};
+
+    /// Which side initiated. The engine knows this for free and a tape consumer
+    /// cannot reconstruct it, so recording it costs 8 bytes (after padding) and
+    /// saves the downstream from guessing. A run of buyer-aggressed prints is
+    /// buying pressure; without this field that signal is simply absent.
+    Side aggressor{};
+
+    friend constexpr bool operator==(const Trade&, const Trade&) noexcept = default;
+};
+
+static_assert(std::is_trivially_copyable_v<Trade>,
+              "Trade must stay trivially copyable: it is produced on the matching hot path and "
+              "handed to a sink by value.");
+
+static_assert(std::is_aggregate_v<Trade>,
+              "Trade must remain an aggregate so that designated initialisers keep guarding the "
+              "two adjacent OrderId fields (DD-021).");
+
+}  // namespace flashpoint

@@ -275,8 +275,8 @@ is scheduled for Milestone 11, driven by the Milestone 10 profile.
 **Alternatives:** a sorted vector; a direct-indexed ladder over the tick range; a
 hybrid ladder-plus-map.
 
-This one was argued at length rather than assumed. The case *against*
-deferring is real: The best solution should be designed first before implementing it, rather than 
+This one was argued at length rather than assumed. The case _against_
+deferring is real: The best solution should be designed first before implementing it, rather than
 rushing into a less than optimal one.
 
 **What decided it:**
@@ -290,9 +290,9 @@ rushing into a less than optimal one.
 2. **A benchmark without a baseline is not a measurement.** "p99 = 400ns" alone
    says nothing. "1200ns → 180ns, and here is the profile" is a result, and it
    requires having built the slow one.
-3. **Domain knowledge names what is *usually* hot, not what is hot here.** The
-   literature says level lookup matters. It does not say it dominates *this*
-   code, where the order index or allocation may well be larger. This serves to 
+3. **Domain knowledge names what is _usually_ hot, not what is hot here.** The
+   literature says level lookup matters. It does not say it dominates _this_
+   code, where the order index or allocation may well be larger. This serves to
    verify the claims for this use case through comparison.
 
 **The condition that makes it safe:** the deferral is only cheap if no caller can
@@ -314,14 +314,14 @@ through the nodes themselves.
 **Alternatives:** `std::deque<Node>` per level; `std::list<Node>` per level plus
 an id→iterator index.
 
-**Why not `std::deque`:** cancel-from-middle is O(n). That is a *design* error
+**Why not `std::deque`:** cancel-from-middle is O(n). That is a _design_ error
 rather than a tuning problem, since real order flow tends to be dominated by cancels, and
 fixing it later would mean rewriting the algorithm and its API.
 
 **Why not `std::list`:** it has the same O(1) complexity as the intrusive
 version, so this is honestly a constant-factor decision, not a complexity one.
 DD-015's own principle argues for deferring it. What tips it is that
-`std::list` allocates per order, and unbounded allocation on the hot path produces an unbounded latency *tail*, 
+`std::list` allocates per order, and unbounded allocation on the hot path produces an unbounded latency _tail_,
 which for a matching engine is the characteristic that matters most. That, plus the fact that the answer
 here is genuinely well established rather than empirical, is why this one was
 built now while DD-015 was deferred.
@@ -378,3 +378,120 @@ cannot be tested, and the FIFO guarantee needs to be verified.
 
 **Cost accepted:** market-data snapshots at Milestone 9 will need a purpose-built
 accessor rather than raw iteration.
+
+---
+
+## DD-019 — Trades are delivered to a caller-supplied sink
+
+**Decision:** `submit(order, on_trade)` is templated on the sink and invokes it
+once per execution, as each execution happens.
+
+**Alternatives:** returning a `std::vector<Trade>`; filling an engine-owned
+buffer the caller reads through a `std::span`.
+
+**Why:** many orders in real flow are non-marketable and produce zero trades, so
+the design should make that case free and the sweeping case cheap. Returning a
+vector allocates precisely when the engine is busiest. An engine-owned buffer
+avoids the allocation but hands the caller a view into engine memory that
+silently changes on the next `submit`, which contradicts the handle-based
+discipline of DD-018.
+
+A sink does neither. It is also likely the better shape for Milestone 9's event stream,
+so the seam is built once rather than migrated to later.
+
+**Cost accepted:** `MatchingEngine::submit` is a template, so the engine is
+header-only. See DD-023.
+
+---
+
+## DD-020 — A trade records the aggressor's side
+
+**Decision:** `Trade` carries maker id, taker id, price, quantity, **and** which
+side aggressed.
+
+**Alternatives:** the four fields without the side; or those plus a trade
+sequence number.
+
+**Why:** the engine knows the aggressor for free, and a consumer reading the
+tape cannot reconstruct it from the trade alone. It is a real signal: a run
+of buyer-aggressed prints is buying pressure. Eight bytes after padding is a
+cheap price for information that is otherwise unrecoverable.
+
+Sequence numbers were left out: numbering is the job of whatever assembles the
+event stream at Milestone 9, and adding it here would mean deciding now who owns
+the counter.
+
+---
+
+## DD-021 — `Trade` is an aggregate, built with designated initialisers
+
+**Decision:** `Trade` is a plain struct with public members, constructed as
+`Trade{.maker_id = ..., .taker_id = ..., ...}`.
+
+**Alternative:** a class with a positional constructor and accessors, matching
+`Order`.
+
+**Why:** `maker_id` and `taker_id` are both `OrderId`. This is the one case in
+the codebase where strong types cannot help: the two arguments genuinely _are_
+the same type, so a positional constructor would let them be transposed silently,
+producing trades that attribute every execution to the wrong party while every
+quantity still balanced.
+
+C++20 designated initialisers put the field name at the call site, which makes
+the mistake visible exactly where it would be made. A `static_assert` keeps
+`Trade` an aggregate so this cannot be quietly undone.
+
+**Consistency cost accepted:** `Trade` and `Order` are shaped differently. That
+is justified by the different risk: `Order`'s fields are four distinct types, so
+positional construction is already safe there (DD-010).
+
+---
+
+## DD-022 — The matching loop lives in the engine, driven by small book primitives
+
+**Decision:** the engine reads the touch, reads the front order, and tells the
+book to `reduce` or `remove` it. One loop in the engine, with the book gaining
+only `remaining_of()` and `reduce()`.
+
+**Alternatives:** moving part of the loop into the book; or having the book hand
+out a cursor into a price level that the engine walks.
+
+**Why:** a cursor is a more efficient answer as it would turn a sweep from
+one price lookup _per fill_ into one per _level_. It is also exactly the handle
+into the book's internals that DD-018 forbids, and giving it away would make the
+Milestone 11 container swap a rewrite rather than a private change. Spending that
+flexibility before any profile says level lookups matter is the trade we currently
+decided not to make (DD-015).
+
+Moving the loop into the book was rejected for a simpler reason: it does not
+reduce the number of lookups, it only relocates the code, and it blurs the line
+between the container and the algorithm.
+
+**Cost accepted:** a sweep of N resting orders performs N level lookups instead
+of one per level. If Milestone 10 shows that dominating, a cursor will become a
+measured change and can be introduced as an opaque handle rather than a leaked
+iterator.
+
+**A related invariant, recorded because it is invisible:** `OrderBook::reduce`
+does not touch the order's queue links. A partially filled order keeps its place
+in line. Sending it to the back would leave aggregate depth identical and betray
+itself only in the order of later executions, which is why it has a dedicated
+test.
+
+---
+
+## DD-023 — `MatchingEngine` is header-only
+
+**Decision:** the whole engine lives in `matching_engine.hpp`, a deliberate
+exception to DD-002's rule that orchestration belongs in a translation unit.
+
+**Why:** `submit` is templated on the sink (DD-019), so it cannot live in a `.cpp`
+without either explicit instantiation for every sink type or type erasure.
+Type erasure would reintroduce the indirect call the sink design exists to avoid.
+Being header-only also lets the compiler inline the sink call and the book
+primitives into the matching loop, which is the hottest code in the project.
+
+**Cost accepted:** every translation unit that includes the engine recompiles
+when the matching logic changes. With one engine and a handful of consumers, that
+is not yet a real cost; if it becomes one, a non-template `submit` taking an
+erased sink can be added _alongside_ the template for cold callers.

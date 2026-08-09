@@ -9,13 +9,19 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 4 of 13 complete — the build system, CI,
-> the core domain types, and the order book are in place. The matching engine is
-> next. See [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what
-> exists right now, not what is planned.
+> **Status: in development.** Milestone 5 of 13 complete — the build system, CI,
+> the core domain types, the order book, and limit-order matching are in place.
+> Market orders and time-in-force are next. See
+> [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
+> now, not what is planned.
 
 ## What exists currently
 
+- **Matching engine** for limit orders at price-time priority. Sweeps multiple
+  price levels, executes at the resting order's price so improvement accrues to
+  the aggressor, preserves queue position across partial fills, and rests the
+  remainder. Trades are handed to a caller-supplied sink, so neither a
+  non-marketable order nor a sweep allocates.
 - **Limit order book** with price-time priority. Price levels in an ordered map
   per side (O(1) top-of-book); orders within a level in an intrusive FIFO queue
   over a pooled vector, so resting an order allocates nothing once warmed and
@@ -24,7 +30,8 @@ every commit.
   Strong types, not typedefs: passing a quantity where a price belongs is a
   compile error, and `Order` is pinned at 32 bytes so two share a cache line.
 - CMake build producing a `flashpoint` static library and a GoogleTest suite,
-  56 tests running under ASan/UBSan.
+  76 tests running under ASan/UBSan, including differential and randomised
+  invariant tests for both the book and the engine.
 - Three build presets: Debug with ASan/UBSan, Release, and RelWithDebInfo.
 - `-Werror` with an aggressive warning set including `-Wconversion`.
 - CI across Linux/GCC, Linux/Clang and macOS/AppleClang, in both sanitized

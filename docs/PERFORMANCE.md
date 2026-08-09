@@ -53,7 +53,15 @@ measurement at Milestone 11.
   new level, which is a second reason to revisit it.
 - **The common case is not a trade.** In real markets, the overwhelming majority
   of messages tend to be non-marketable adds and cancels. Optimising the crossing path
-  while the add path chases pointers is the classic mistake.
+  while the add path chases pointers is the classic mistake. The engine's trade
+  sink (DD-019) is shaped for this: an order producing no executions never
+  invokes it and allocates nothing.
+- **Repeated level lookups during a sweep.** Filling against N resting orders
+  currently performs N price-level lookups rather than one per level, because the
+  engine re-enters the book for each fill (DD-022). The efficient shape is a
+  cursor held across a level, but that is a handle into the book's internals and
+  would forfeit the swappability DD-018 exists to protect. Deliberately left
+  until a profile says it matters, but should still be done as an opaque handle.
 - **Top-of-book access.** Best bid/ask is read on essentially every operation.
   It should be O(1) and ideally in a hot cache line.
 - **`Order` is 32 bytes, and could plausibly be 24.** `Price::Rep` and
@@ -92,6 +100,11 @@ measurement can find:
 - **The book's public API is handle-based** (DD-018), asserted by test. Nothing
   outside can hold an iterator into the price-level container, which is what
   keeps replacing it a private change rather than a rewrite.
+- **Trades are delivered without allocation.** The sink is a template parameter,
+  so the call is direct and inlinable rather than an indirect dispatch through
+  `std::function`, and no per-order container is built (DD-019, DD-023).
+- **A partial fill costs no relinking.** `OrderBook::reduce` updates two integers
+  and touches neither the queue links nor the level's head and tail.
 
 ## Environment used for benchmarking
 

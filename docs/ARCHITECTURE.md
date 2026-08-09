@@ -18,6 +18,8 @@ FlashPoint/
 │   ├── types.hpp               Side, Price, Quantity, OrderId
 │   ├── order.hpp               Order — the inbound request
 │   ├── order_book.hpp          OrderBook — price-time priority container
+│   ├── trade.hpp               Trade — one execution
+│   ├── matching_engine.hpp     MatchingEngine — header-only (templated sink)
 │   ├── ostream.hpp             Stream inserters; NOT included by the library
 │   └── version.hpp.in          Generated into the build tree by CMake
 ├── src/                        Implementation translation units
@@ -136,7 +138,7 @@ engine's job at Milestone 5.
 | `best_bid` / `best_ask` | O(1) | `rbegin()` / `begin()` |
 | `quantity_at` / `order_count_at` / `front_at` | O(log L) | level lookup; aggregates are cached, so no queue walk |
 
-Every O(log L) term comes from the price-level container and nothing else. This is so that it localises the entire 
+Every O(log L) term comes from the price-level container and nothing else. This is so that it localises the entire
 remaining cost to the one component needing to be tested at Milestone 11 (DD-015).
 
 **Two invariants worth naming**, because violating either produces wrong answers
@@ -152,5 +154,46 @@ iterator or a reference into the book (DD-018). This is what allows the
 price-level container to be replaced without touching a caller, and it is
 asserted in tests rather than merely documented.
 
-- **Matching engine**: pending Milestone 5.
+### Matching engine (Milestone 5)
+
+`MatchingEngine` owns a book and applies incoming limit orders to it. It is the
+only component that can leave the book crossed, and it never does which is why
+`OrderBook` contains no crossing check of its own.
+
+**The loop:**
+
+```
+submit(order, on_trade):
+    reject if structurally invalid        ← the boundary check DD-012 promised
+    reject if the id is already resting
+    while the order has quantity left:
+        touch = best price on the opposing side
+        stop if there is none, or it is beyond the order's limit
+        maker = front order at the touch          (oldest wins)
+        fill  = min(aggressor remaining, maker remaining)
+        emit Trade at the MAKER's price
+        fill == maker remaining ? remove(maker) : reduce(maker, fill)
+    rest any remainder
+```
+
+**Three rules that carry the correctness of this milestone:**
+
+1. **Execution price is the maker's price.** A buy limited at 105 lifting an ask
+   resting at 100 trades at 100, meaning price improvement accrues to the aggressor.
+   Reversing this overcharges every taker while every quantity still balances.
+2. **A partial fill preserves queue position.** `OrderBook::reduce` leaves the
+   order's links untouched. Sending a partially filled order to the back of the
+   queue would leave aggregate depth identical and show up only in the ordering
+   of later executions (DD-022).
+3. **Equality crosses.** A limit exactly at the resting price trades, on both
+   sides. One tick short does not.
+
+**Termination.** Both sides of every fill are strictly positive, so the book never
+retains a zero-quantity order. `fill > 0` always and the loop makes progress
+on every iteration.
+
+**Trade delivery** is a caller-supplied sink invoked once per execution
+(DD-019), so a non-marketable order costs nothing and a sweep allocates nothing.
+This is the seam Milestone 9's event stream will attach to.
+
 - **Event stream**: pending Milestone 9.
