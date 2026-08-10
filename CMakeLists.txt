@@ -15,6 +15,11 @@ endif()
 
 # Options
 option(FLASHPOINT_BUILD_TESTS "Build the FlashPoint unit tests" ${PROJECT_IS_TOP_LEVEL})
+
+# Off by default. Benchmarks are only meaningful in a Release build (rule 1 in
+# docs/PERFORMANCE.md), so the release presets turn this on and the dev preset
+# leaves it off to keep the everyday configure fast.
+option(FLASHPOINT_BUILD_BENCHMARKS "Build the FlashPoint benchmarks" OFF)
 option(FLASHPOINT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ${PROJECT_IS_TOP_LEVEL})
 option(FLASHPOINT_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
@@ -75,6 +80,10 @@ if(FLASHPOINT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+if(FLASHPOINT_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
 
 # Configuration summary
 message(STATUS "")
@@ -82,6 +91,7 @@ message(STATUS "FlashPoint ${PROJECT_VERSION}")
 message(STATUS "  Compiler ............ ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "  Build type .......... ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Tests ............... ${FLASHPOINT_BUILD_TESTS}")
+message(STATUS "  Benchmarks .......... ${FLASHPOINT_BUILD_BENCHMARKS}")
 message(STATUS "  Warnings as errors .. ${FLASHPOINT_WARNINGS_AS_ERRORS}")
 message(STATUS "  Sanitizers .......... ${FLASHPOINT_ENABLE_SANITIZERS}")
 message(STATUS "")

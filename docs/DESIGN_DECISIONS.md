@@ -855,3 +855,59 @@ price-level container replaceable (DD-018), which matters here because a depth
 snapshot is exactly the kind of API that would otherwise leak an iterator.
 
 **Cost accepted:** a slightly clunkier call site than returning a container.
+
+---
+
+## DD-039 — Two benchmark harnesses, because they answer two questions
+
+**Decision:** Google Benchmark measures throughput; a small hand-written harness
+measures the per-operation latency distribution.
+
+**Alternative:** Google Benchmark alone.
+
+**Why:** rule 2 in `docs/PERFORMANCE.md` says report p50 / p99 / p99.9, because
+for a matching engine the tail is the product. Google Benchmark reports mean,
+median and standard deviation, and has no native percentiles. Using it alone
+would have meant amending the rule to match the tool, which is the wrong way
+round.
+
+The measurement turned out to justify the split for a second reason not
+predicted. `steady_clock` on this machine ticks at about 41.67 ns, and several
+operations are faster than that, so the latency harness cannot resolve them. The
+throughput harness amortises across millions of iterations and reads 4.23 ns for
+top of book. Neither harness alone would have produced both the distribution and
+the sub-tick means.
+
+**The latency harness is deliberately small.** Record one timing per operation
+into a vector reserved up front, sort, index the percentiles. Percentiles are
+nearest-rank with no interpolation, so every figure published is a measurement
+that actually happened.
+
+**Instrumentation cost is measured and reported**, not hidden. An empty timed
+region costs about 42 ns on this machine, which is stated next to the results so
+a reader can separate the engine from the instrument.
+
+---
+
+## DD-040 — Benchmarks are built in CI but never run there
+
+**Decision:** the `release` preset builds the benchmark targets, so CI compiles
+them on every push. CI never executes them and never asserts on timings.
+
+**Alternatives:** run them and fail on threshold regressions; or leave them out
+of CI entirely.
+
+**Why:** the real risk is bit-rot. The benchmarks link against the engine's API,
+and a milestone that changes a signature should break the build immediately
+rather than two milestones later. Compiling them catches that for the cost of
+one extra target.
+
+Running them would not. Shared CI runners are virtualised and noisy, so any
+threshold would either be so loose it catches nothing or so tight it flaps.
+Automated regression detection needs dedicated hardware to mean anything, and
+inventing a number from a shared runner would be worse than having none.
+
+**Consequence:** benchmarks are off in the `dev` preset, so the everyday
+configure stays fast and does not fetch Google Benchmark. They are only
+meaningful in a Release build (rule 1), so tying them to the release
+presets is also the semantically correct place.

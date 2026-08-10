@@ -124,6 +124,35 @@ sets `FixNamespaceComments: true`, so every namespace must close as
 `}  // namespace flashpoint`, not a bare `}`. Running `clang-format -i` adds
 these automatically.
 
+## Benchmarks
+
+Benchmarks only mean anything in a Release build, so they are off in the `dev`
+preset and on in `release` and `relwithdebinfo`. Building them fetches Google
+Benchmark.
+
+```bash
+cmake --preset release && cmake --build --preset release --parallel
+```
+
+Latency distribution, per operation, at two book shapes:
+
+```bash
+./build/release/benchmarks/flashpoint_latency_bench
+```
+
+Sustained throughput:
+
+```bash
+./build/release/benchmarks/flashpoint_throughput_bench --benchmark_min_time=1s
+```
+
+Read the caveats in [`PERFORMANCE.md`](PERFORMANCE.md) before quoting anything
+either one prints. In particular there is a measurement floor of roughly 42 ns
+on Apple Silicon, and macOS gives no way to pin cores or fix the clock speed.
+
+CI builds both targets but never runs them: a shared runner cannot produce a
+number worth asserting on (DD-040).
+
 ## Static analysis
 
 `clang-tidy` is configured but not yet enforced in CI. The `dev` preset writes
@@ -143,6 +172,7 @@ defaults.
 | `FLASHPOINT_BUILD_TESTS` | `ON` when top-level | Build the test executable |
 | `FLASHPOINT_WARNINGS_AS_ERRORS` | `ON` when top-level | Add `-Werror` |
 | `FLASHPOINT_ENABLE_SANITIZERS` | `OFF` | ASan + UBSan, no recovery |
+| `FLASHPOINT_BUILD_BENCHMARKS` | `OFF`, `ON` in the release presets | Build the benchmark targets |
 
 Both defaults fall to `OFF` when FlashPoint is consumed via `add_subdirectory()`,
 so a downstream project inherits neither our tests nor our warning policy.

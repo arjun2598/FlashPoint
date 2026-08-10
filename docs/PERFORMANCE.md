@@ -1,7 +1,7 @@
 # Performance Notes
 
-> **Status: methodology only.** No benchmarks exist yet as the benchmark harness
-> lands at Milestone 10.
+> **Status: measured.** Numbers below are from Milestone 10. Read the caveats
+> before quoting any of them.
 
 ## Measurement rules
 
@@ -115,8 +115,153 @@ measurement can find:
 
 ## Environment used for benchmarking
 
-*To be recorded at Milestone 10.*
+| | |
+|---|---|
+| CPU | Apple M2, 8 cores (4 performance + 4 efficiency) |
+| Memory | 8 GB |
+| OS | macOS, Darwin 25.3.0 |
+| Compiler | AppleClang 21.0.0, arm64 |
+| Build | `release` preset, `-O3 -DNDEBUG`, no sanitizers |
+| Load during the run | load average 3–6 (the machine was not idle) |
+
+**Read these caveats before quoting any number.**
+
+1. **This is a laptop, not a server.** macOS offers no straightforward way to pin
+   a thread to a core or to disable frequency scaling, and the run competed with
+   other work. Treat the figures as the *relative* cost of operations against
+   each other, not as absolute production latencies.
+2. **There is a measurement floor of about 42 ns.** `steady_clock` on this
+   machine ticks at roughly 41.67 ns, so any operation faster than that reads as
+   one tick. Several do. This is the reason for two harnesses: Google Benchmark
+   amortises across millions of iterations and resolves below the floor, while
+   the latency harness gives the distribution above it.
+3. **The `max` column is the operating system, not the engine.** Values in the
+   tens of microseconds are the thread being descheduled. They are reported
+   rather than trimmed, because silently discarding outliers is how benchmarks
+   become dishonest, but they say nothing about the code.
 
 ## Results
 
-*Coming soon!*
+Two book shapes, both holding **5,000 resting orders**, differing only in how
+many distinct price levels those orders occupy:
+
+- **shallow** — 10 levels × 500 orders
+- **deep** — 1,000 levels × 5 orders
+
+Everything in the book that is not O(1) scales with the level count, so the gap
+between the two columns is precisely the cost the Milestone 11 container change
+is meant to remove.
+
+### Latency distribution, nanoseconds
+
+Nearest-rank percentiles, so every figure is a measurement that actually
+occurred. Includes roughly 42 ns of instrumentation (two clock reads).
+
+Shallow book, 10 levels:
+
+| Operation | samples | p50 | p90 | p99 | p99.9 |
+|---|---:|---:|---:|---:|---:|
+| add, non-marketable | 200,000 | 42 | 84 | 125 | 1,833 |
+| cancel, random resting order | 200,000 | 42 | 84 | 125 | 292 |
+| submit, crosses one resting order | 200,000 | 42 | 42 | 84 | 125 |
+| submit, sweeps ten resting orders | 50,000 | 417 | 459 | 542 | 750 |
+| modify, priority retained | 200,000 | 42 | 42 | 42 | 83 |
+| modify, priority lost | 200,000 | 125 | 125 | 167 | 292 |
+| read top of book | 200,000 | 41 | 42 | 42 | 84 |
+| snapshot, ten levels | 200,000 | 42 | 42 | 42 | 83 |
+
+Deep book, 1,000 levels:
+
+| Operation | samples | p50 | p90 | p99 | p99.9 |
+|---|---:|---:|---:|---:|---:|
+| add, non-marketable | 200,000 | 84 | 125 | 167 | 1,250 |
+| cancel, random resting order | 200,000 | 125 | 166 | 208 | 333 |
+| submit, crosses one resting order | 200,000 | 83 | 125 | 125 | 292 |
+| submit, sweeps ten resting orders | 50,000 | 667 | 709 | 917 | 1,334 |
+| modify, priority retained | 200,000 | 42 | 84 | 125 | 208 |
+| modify, priority lost | 200,000 | 208 | 250 | 292 | 417 |
+| read top of book | 200,000 | 41 | 42 | 42 | 125 |
+| snapshot, ten levels | 200,000 | 83 | 84 | 84 | 167 |
+
+### Throughput, Google Benchmark
+
+Amortised mean per operation, which resolves below the clock floor.
+
+| Benchmark | shallow | deep | ratio |
+|---|---:|---:|---:|
+| add then cancel (one pair) | 129 ns | 195 ns | 1.51× |
+| submit crossing one resting order | 20.2 ns | 35.4 ns | 1.75× |
+| read top of book | 4.23 ns | 7.33 ns | 1.73× |
+| snapshot, ten levels | 42.4 ns | 73.8 ns | 1.74× |
+
+Headline sustained rate: **15.5 M add-and-cancel pairs per second** on the
+shallow book, **10.3 M** on the deep one.
+
+There is deliberately no add-only throughput benchmark. Google Benchmark picks
+its own iteration count, and an add-only loop pushed six million orders into a
+book that started with five thousand, so it measured node-pool growth and hash
+rehashing rather than the add path. Add in isolation is measured by the latency
+harness, where the sample count is fixed and the pool is reserved up front.
+
+### What the numbers say
+
+1. **Every operation that touches a price level costs 1.5–1.75× more on the deep
+   book.** The ratio is remarkably consistent across unrelated operations, which
+   is what you would expect if a single shared component (the price-level
+   container) is responsible. This is the prize Milestone 11 is chasing, and it
+   is now sized rather than assumed.
+
+2. **Reading top of book is 4.2 ns and genuinely O(1)**, but still 1.73× slower
+   on the deep book. That is not algorithmic; `rbegin()` on a `std::map` is O(1)
+   either way. It is the pointer chase into a tree node that is less likely to be
+   in cache when the tree is a hundred times larger. A flat structure would fix
+   this even though the complexity is already optimal.
+
+3. **The multi-level sweep is the most expensive operation and scales worst in
+   absolute terms** (417 → 667 ns, +250 ns). This is DD-022 showing up exactly
+   where it was predicted: the engine re-enters the book once per fill, so ten
+   fills pay ten level lookups. A cursor held across a level would collapse that
+   to one per level.
+
+4. **A retained modify is the cheapest mutation**, at or near the clock floor.
+   It updates two integers and does one level lookup, with no relinking. The
+   priority-lost path costs about 3× more (125 vs 42 ns shallow), which is the
+   remove-and-re-add showing its price.
+
+5. **The p99.9 on `add` is an outlier at 1,250–1,833 ns**, far above its p99 of
+   125–167 ns. That is the node pool and the order index growing: 200,000 adds
+   onto a 5,000-order book means occasional reallocation. It is the one place in
+   the results where an unbounded tail traces to something real in the engine
+   rather than to the operating system, and it argues for reserving capacity up
+   front in any latency-sensitive deployment. `MatchingEngine` already accepts an
+   expected order count for exactly this.
+
+### Two benchmark bugs found and fixed during this milestone
+
+Recorded because they are the reason to trust the final numbers, and because
+both would have produced plausible-looking but wrong results.
+
+- **`modify, priority retained` measured the wrong thing twice.** It first passed
+  a fixed price rather than the order's own, which made most iterations a reprice
+  (the priority-*lost* path) and migrated the whole book onto one level part
+  way through the run. Corrected to use the order's price, it then passed the
+  *same* quantity back, which skips the reduce entirely and measured a lookup and
+  an event. It now genuinely reduces the quantity.
+- **`bm_add_non_marketable` measured pool growth.** Described above; removed.
+
+Neither bug would have failed anything. They were caught by noticing that a
+figure did not move when the book shape changed, which it should have.
+
+## What Milestone 11 should target
+
+In priority order, based on the above rather than on intuition:
+
+1. **Replace the price-level container.** Worth roughly 1.5–1.75× on nearly
+   every operation, and the effect is measured, not assumed. The differential
+   test against the current implementation is the safety net (DD-015).
+2. **Give the sweep a level cursor** (DD-022). Worth roughly 250 ns on a
+   ten-order sweep against a deep book. Smaller and narrower than the above, and
+   only worth the API cost if the container change does not already absorb it.
+3. **Nothing else yet.** `Order` shrinking to 24 bytes and other hypotheses in
+   this document have no measurement behind them, and the two items above
+   dominate everything measured so far.

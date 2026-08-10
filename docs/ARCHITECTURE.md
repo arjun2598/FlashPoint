@@ -26,6 +26,7 @@ FlashPoint/
 │   └── version.hpp.in          Generated into the build tree by CMake
 ├── src/                        Implementation translation units
 ├── tests/                      GoogleTest suite, one executable
+├── benchmarks/                 Throughput (Google Benchmark) + latency harness
 ├── docs/                       This directory
 └── .github/workflows/ci.yml    Build matrix + format gate
 ```
@@ -41,8 +42,8 @@ FlashPoint/
           ┌─────────────────────┼─────────────────────┐
           │                     │                     │
   ┌───────▼────────┐   ┌────────▼────────┐   ┌────────▼────────┐
-  │ flashpoint_    │   │ benchmarks      │   │ demo            │
-  │ tests          │   │  (planned, M10) │   │  (planned, M12) │
+  │ flashpoint_    │   │ throughput +    │   │ demo            │
+  │ tests          │   │ latency benches │   │  (planned, M12) │
   └────────────────┘   └─────────────────┘   └─────────────────┘
 ```
 

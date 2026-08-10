@@ -32,7 +32,8 @@
       "description": "Optimised build. Use this for benchmarks and for the demo.",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "FLASHPOINT_ENABLE_SANITIZERS": "OFF"
+        "FLASHPOINT_ENABLE_SANITIZERS": "OFF",
+        "FLASHPOINT_BUILD_BENCHMARKS": "ON"
       }
     },
     {
@@ -42,7 +43,8 @@
       "description": "Optimised with symbols. Use this when profiling.",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "FLASHPOINT_ENABLE_SANITIZERS": "OFF"
+        "FLASHPOINT_ENABLE_SANITIZERS": "OFF",
+        "FLASHPOINT_BUILD_BENCHMARKS": "ON"
       }
     }
   ],

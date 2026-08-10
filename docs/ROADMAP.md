@@ -14,7 +14,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 7   | Cancel orders                                                       | ✔ Complete                     |
 | 8   | Modify / cancel-replace                                             | ✔ Complete                     |
 | 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ✔ Complete                     |
-| 10  | Benchmarks (throughput & latency percentiles)                       | ⬜ Not started                 |
+| 10  | Benchmarks (throughput & latency percentiles)                       | ✔ Complete                     |
 | 11  | Measured performance tuning pass                                    | ⬜ Not started                 |
 | 12  | Demo application (order feed replay)                                | ⬜ Not started                 |
 | 13  | Documentation polish & architecture diagrams                        | ⬜ Not started                 |
@@ -257,6 +257,45 @@ Decisions recorded as DD-034 through DD-038.
 - The event stream and the returned summaries are cross-checked: trade events
   must account for exactly the reported `filled`, and cancelled events for
   exactly `cancelled`.
+
+## Milestone 10 — Benchmarks ✔
+
+**Objective:** produce the first real numbers, following the methodology
+`docs/PERFORMANCE.md` has carried since Milestone 1.
+
+Delivered:
+
+- `benchmarks/support.hpp` — workload construction, latency recorder,
+  nearest-rank percentiles, instrumentation-cost measurement.
+- `benchmarks/latency_bench.cpp` — eight scenarios at two book shapes, reporting
+  p50 / p90 / p99 / p99.9 / max.
+- `benchmarks/throughput_bench.cpp` — Google Benchmark v1.9.5, pinned.
+- `FLASHPOINT_BUILD_BENCHMARKS`, off by default and on in the release presets.
+- Measured results and their caveats written into `docs/PERFORMANCE.md`.
+
+Decisions recorded as DD-039 and DD-040.
+
+**Headline findings:**
+
+- Every operation that touches a price level costs **1.5–1.75× more** on a book
+  with 100× the levels, holding the same number of orders. The ratio is
+  consistent across unrelated operations, which is what a single shared
+  bottleneck looks like.
+- The multi-level sweep is the most expensive operation and scales worst in
+  absolute terms (417 → 667 ns), which is DD-022 appearing exactly where it was
+  predicted.
+- Reading top of book is 4.23 ns and already O(1), yet still 1.73× slower on the
+  deep book. That is cache behaviour, not complexity.
+
+**Verification performed:**
+
+- Both harnesses build clean under `-Werror` and run to completion.
+- **Two bugs in the benchmarks themselves were found and fixed**, both recorded
+  in `docs/PERFORMANCE.md`: `modify, priority retained` was measuring the
+  priority-*lost* path and then a no-op, and an add-only throughput benchmark was
+  measuring node-pool growth rather than the add path. Neither would have failed
+  anything. Both were caught by noticing a figure that did not move when the book
+  shape changed, which it should have.
 
 ## Parked decisions
 

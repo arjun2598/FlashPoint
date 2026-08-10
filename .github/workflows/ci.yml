@@ -54,6 +54,9 @@ jobs:
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
 
+      # The release preset also builds the benchmark targets. They are never run
+      # here: a shared runner cannot produce a number worth asserting on, but
+      # compiling them stops them bit-rotting against API changes (DD-040).
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel
 

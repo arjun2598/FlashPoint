@@ -9,14 +9,19 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 9 of 13 complete — the build system, CI,
+> **Status: in development.** Milestone 10 of 13 complete — the build system, CI,
 > the core domain types, the order book, matching for limit and market orders,
-> cancel, modify and the event stream are in place. Benchmarks are next.
+> cancel, modify, the event stream and benchmarks are in place. A measured
+> tuning pass is next.
 > See [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
 > now, not what is planned.
 
 ## What exists currently
 
+- **Benchmarks with real numbers.** Throughput via Google Benchmark, latency
+  percentiles via a purpose-built harness, at two book shapes. 15.5 M
+  add-and-cancel pairs per second; 4.2 ns to read top of book. Results and their
+  caveats are in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 - **Event stream and market data.** Every operation publishes an ordered,
   sequence-numbered stream of what it did: acknowledgements, executions,
   rejections, cancellations and amendments. Events are one flat trivially
@@ -54,8 +59,7 @@ every commit.
 
 ## Planned
 
-A benchmark suite reporting p50/p99/p99.9 latency, a measured tuning pass,
-and a replay demo.
+A measured performance tuning pass and a replay demo.
 
 ## Quick start
 
