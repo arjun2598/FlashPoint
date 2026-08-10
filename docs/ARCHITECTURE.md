@@ -262,4 +262,35 @@ Two things worth knowing:
 There is no owner check. Any caller can cancel any order, because `Order` has no
 participant id. Same gap as self-trade prevention, parked for the same reason.
 
+### Modify (Milestone 8)
+
+`MatchingEngine::modify(id, new_price, new_quantity, on_trade)` returns
+`ModifyResult{status, filled, resting, priority}`. The order keeps its id.
+
+**Queue priority** is the substance of this milestone:
+
+| Change | Priority | What happens internally |
+|---|---|---|
+| quantity reduced, same price | retained | `OrderBook::reduce`, links untouched |
+| quantity unchanged, same price | retained | nothing |
+| quantity increased | lost | remove, then re-submit |
+| price changed | lost | remove, then re-submit |
+
+Shrinking takes nothing from the orders behind, so the order stays put. Growing
+it adds size ahead of orders already waiting, so it goes to the back.
+
+**`new_quantity` is the new remaining quantity**, not a new total order size.
+The book stores only the remainder (DD-017), so a FIX-style total would need an
+extra field on the hottest object in the book. The priority comparison follows:
+"increased" means larger than what is currently resting.
+
+**A repriced order goes back through `submit()`**, so one that now crosses the
+spread trades, exactly as a fresh order at that price would. That keeps the
+matching rules in one place, and keeps the no-crossed-book guarantee for modify
+as well as submit.
+
+Supporting this, `OrderBook` gained `resting_order(OrderId)`, which returns a
+`RestingOrder` snapshot — side, price and remaining quantity by value. It is a
+copy, not a view, so it fits the handle-based contract (DD-018).
+
 - **Event stream**: pending Milestone 9.

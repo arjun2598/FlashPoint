@@ -86,6 +86,11 @@ static_assert(std::is_same_v<decltype(std::declval<ConstBook>().order_count_at(S
 static_assert(std::is_same_v<decltype(std::declval<ConstBook>().front_at(Side::Buy, Price{})),
                              std::optional<OrderId>>);
 static_assert(std::is_same_v<decltype(std::declval<ConstBook>().contains(OrderId{})), bool>);
+static_assert(std::is_same_v<decltype(std::declval<ConstBook>().remaining_of(OrderId{})),
+                             std::optional<Quantity>>);
+// resting_order returns a snapshot by value, not a view into the book.
+static_assert(std::is_same_v<decltype(std::declval<ConstBook>().resting_order(OrderId{})),
+                             std::optional<RestingOrder>>);
 static_assert(std::is_same_v<decltype(std::declval<ConstBook>().size()), std::size_t>);
 
 // Silently dropping "this id already rests" or "no such order" would be a bug

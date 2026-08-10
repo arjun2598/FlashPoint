@@ -646,3 +646,103 @@ helpful reason.
 **Separate from this:** a cancel naming `OrderId::kNone` gets its own
 `RejectedInvalidId` status. That is a malformed message rather than a miss, and
 it mirrors the structural check `submit` performs.
+
+---
+
+## DD-030 — Modify follows the standard queue priority rule
+
+**Decision:**
+
+| Change | Priority |
+|---|---|
+| quantity reduced, same price | retained |
+| quantity unchanged, same price | retained |
+| quantity increased | lost |
+| price changed | lost |
+
+`ModifyResult` reports which happened, as `QueuePriority::Retained` or `Lost`.
+
+**Alternatives:** every modify loses priority, which is simpler and is what some
+smaller venues do; or make the rule configurable.
+
+**Why:** shrinking an order takes nothing from the orders behind it, so there is
+no reason to move it back. Growing it does, because the added size would sit
+ahead of orders that were already waiting. Penalising shrinking would just push clients
+to cancel and resubmit instead.
+
+Configurability was rejected because it doubles the behaviours to test for a rule
+nobody wants to flip.
+
+**Why the result reports it:** whether an amend cost the order its place is the
+most consequential thing about a modify, and the client cannot see the book to
+work it out. Reporting it also makes the rule directly testable rather than
+inferred from `front_at()`.
+
+**Worth knowing about the tests:** aggregate depth looks identical whether
+priority was kept or lost. A bug here is invisible unless the test checks who
+fills next, so every priority case is followed by an order that trades against
+the level.
+
+---
+
+## DD-031 — The new quantity is the new remaining, not a new total
+
+**Decision:** `modify(id, price, quantity)` sets the resting quantity directly.
+An order with 20 left, modified to 25, rests 25 regardless of what it filled
+earlier.
+
+**Alternative:** treat it as a new total order size including fills, the way FIX
+defines `OrderQty`, and reject any value at or below the filled quantity.
+
+**Why:** the book stores only remaining quantity per resting order (DD-017). The
+FIX reading needs the original quantity too, which is a field on `Node`, the
+hottest object in the book.
+
+The priority comparison follows from this: "increased" means larger than what is
+currently resting, not larger than what was originally sent.
+
+**Cost accepted:** a divergence from FIX semantics. Recorded here so it is a
+known difference rather than an oversight. Adding the original quantity to `Node`
+is the change that would close it.
+
+---
+
+## DD-032 — A repriced order goes back through matching
+
+**Decision:** when a modify loses priority, the order is removed and re-submitted
+through `submit()`. If the new price crosses the spread, it trades.
+
+**Alternative:** reject a modify that would cross.
+
+**Why:** an order repriced across the spread is a new order at that price and
+should behave like one. Rejecting this would force clients to cancel and resubmit,
+which doesn't make sense for something expected and acceptable.
+
+Routing through `submit()` rather than putting the order straight back in the
+book is what makes this work, and it means the matching rules live in exactly one
+place. It also keeps the guarantee that the engine never leaves a crossed book,
+for modify as well as submit.
+
+**Safety note:** the order is removed before the re-submit, so a rejected
+re-submit would lose it. Every rejection is ruled out by construction: the id was
+just removed so it cannot collide, and a Limit/GoodTillCancel order built from a
+checked id, a book-supplied side and a non-zero quantity is always structurally
+valid. An assertion records the reasoning.
+
+---
+
+## DD-033 — A modify keeps the order's id
+
+**Decision:** `modify` amends in place. The order keeps the id it had, even when
+it loses priority and is internally removed and re-added.
+
+**Alternative:** FIX-style cancel-replace, where the replacement carries a new
+client order id and the old one is retired.
+
+**Why:** one id keeps the priority rules the visible feature of this milestone
+rather than id bookkeeping. It also means a client tracking an order does not
+have to follow an id chain across amends.
+
+**Cost accepted:** a divergence from FIX, which models a replace as a new order.
+A venue reporting both ids would need the mapping kept somewhere, which is the
+same order-history subsystem DD-029 pushed outside the engine.

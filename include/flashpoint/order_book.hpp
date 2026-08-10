@@ -13,6 +13,20 @@
 
 namespace flashpoint {
 
+/// A snapshot of one resting order.
+///
+/// A copy taken at the moment it was asked for, not a view into the book, so it
+/// does not go stale in a way the caller can act on by accident. Modify uses it
+/// to learn where an order currently sits before deciding what to do with it.
+struct RestingOrder {
+    OrderId id{};
+    Side side{};
+    Price price{};
+    Quantity remaining{};
+
+    friend constexpr bool operator==(const RestingOrder&, const RestingOrder&) noexcept = default;
+};
+
 /// A single-instrument limit order book maintaining price-time priority.
 ///
 /// The book knows nothing about symbols. A book is a per-instrument structure;
@@ -93,6 +107,13 @@ public:
 
     /// Unfilled quantity of a resting order, or nullopt if it is not present.
     [[nodiscard]] std::optional<Quantity> remaining_of(OrderId id) const;
+
+    /// Where an order currently rests, or nullopt if it is not present.
+    ///
+    /// Returns side, price and remaining quantity together. `remaining_of` stays
+    /// separate because the matching loop calls it on every fill and only needs
+    /// the quantity; this one is for the cold path.
+    [[nodiscard]] std::optional<RestingOrder> resting_order(OrderId id) const;
 
     /// Reduces a resting order's unfilled quantity by `by`, as a partial fill
     /// does. Returns false if no such order is resting.

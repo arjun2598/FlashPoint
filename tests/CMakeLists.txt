@@ -20,6 +20,7 @@ include(GoogleTest)
 add_executable(flashpoint_tests
     cancel_test.cpp
     matching_engine_test.cpp
+    modify_test.cpp
     order_book_test.cpp
     order_test.cpp
     time_in_force_test.cpp

@@ -9,17 +9,18 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 7 of 13 complete — the build system, CI,
+> **Status: in development.** Milestone 8 of 13 complete — the build system, CI,
 > the core domain types, the order book, matching for limit and market orders,
-> and cancel are in place. Modify is next. See
+> cancel and modify are in place. The event stream is next. See
 > [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
 > now, not what is planned.
 
 ## What exists currently
 
-- **Cancel.** Reports the quantity that was still resting, which is what the
-  client actually pulled: an order that filled 30 of 50 before the cancel
-  arrived reports 20.
+- **Cancel and modify.** Cancel reports the quantity that was still resting,
+  which is what the client actually pulled. Modify follows the venue rule for
+  queue priority: shrinking an order keeps its place in line, growing it or
+  repricing it sends it to the back, and a reprice across the spread trades.
 - **Market orders and time-in-force.** Market orders trade up to a
   venue-configured protection price derived from the opposite touch, so one
   cannot sweep a thin book to an arbitrary price. GoodTillCancel rests,
@@ -38,7 +39,7 @@ every commit.
   Strong types, not typedefs: passing a quantity where a price belongs is a
   compile error, and `Order` is pinned at 32 bytes so two share a cache line.
 - CMake build producing a `flashpoint` static library and a GoogleTest suite,
-  130 tests running under ASan/UBSan, including differential and randomised
+  148 tests running under ASan/UBSan, including differential and randomised
   invariant tests for both the book and the engine.
 - Three build presets: Debug with ASan/UBSan, Release, and RelWithDebInfo.
 - `-Werror` with an aggressive warning set including `-Wconversion`.
@@ -47,8 +48,8 @@ every commit.
 
 ## Planned
 
-Cancel-replace, an event stream with L2 market data, a benchmark
-suite reporting p50/p99/p99.9 latency, and a replay demo.
+An event stream with L2 market data, a benchmark suite reporting
+p50/p99/p99.9 latency, and a replay demo.
 
 ## Quick start
 

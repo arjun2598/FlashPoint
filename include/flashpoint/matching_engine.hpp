@@ -127,6 +127,80 @@ struct CancelResult {
     friend constexpr bool operator==(const CancelResult&, const CancelResult&) noexcept = default;
 };
 
+/// Whether a modified order kept its place in the queue at its price level.
+enum class QueuePriority : std::uint8_t {
+    /// The order stayed where it was.
+    Retained,
+
+    /// The order went to the back of the queue at its price.
+    Lost,
+};
+
+[[nodiscard]] constexpr std::string_view to_string(QueuePriority priority) noexcept {
+    switch (priority) {
+        case QueuePriority::Retained:
+            return "Retained";
+        case QueuePriority::Lost:
+            return "Lost";
+    }
+    return "Unknown";
+}
+
+/// Outcome of a modify request.
+enum class ModifyStatus : std::uint8_t {
+    /// The change was applied. `ModifyResult` says what became of the order.
+    Modified,
+
+    /// No order with that id is resting. Same limitation as cancel: the engine
+    /// cannot tell "never existed" from "already filled" (DD-029).
+    UnknownOrder,
+
+    /// The id was `OrderId::kNone`, the reserved "no order" value.
+    RejectedInvalidId,
+
+    /// The requested quantity was zero. Removing an order is `cancel`.
+    RejectedInvalidQuantity,
+};
+
+[[nodiscard]] constexpr std::string_view to_string(ModifyStatus status) noexcept {
+    switch (status) {
+        case ModifyStatus::Modified:
+            return "Modified";
+        case ModifyStatus::UnknownOrder:
+            return "UnknownOrder";
+        case ModifyStatus::RejectedInvalidId:
+            return "RejectedInvalidId";
+        case ModifyStatus::RejectedInvalidQuantity:
+            return "RejectedInvalidQuantity";
+    }
+    return "Unknown";
+}
+
+/// What happened to a modify request.
+///
+/// For an applied change, `filled + resting` equals the requested quantity. A
+/// modify never cancels anything: the order it produces is a resting limit
+/// order, so whatever does not trade stays in the book.
+struct ModifyResult {
+    ModifyStatus status{ModifyStatus::UnknownOrder};
+
+    /// Quantity traded as a direct result of this modify. Non-zero only when the
+    /// new price crossed the spread.
+    Quantity filled{};
+
+    /// Quantity left resting after the change.
+    Quantity resting{};
+
+    /// Whether the order kept its place in line.
+    QueuePriority priority{QueuePriority::Lost};
+
+    [[nodiscard]] constexpr bool modified() const noexcept {
+        return status == ModifyStatus::Modified;
+    }
+
+    friend constexpr bool operator==(const ModifyResult&, const ModifyResult&) noexcept = default;
+};
+
 /// Venue policy the engine applies to incoming orders.
 struct EngineConfig {
     /// How far past the opposite touch a market order may trade, in ticks.
@@ -256,6 +330,82 @@ public:
         }
 
         return SubmitResult{SubmitStatus::Accepted, filled, Quantity{}, remaining};
+    }
+
+    /// Changes the price and/or remaining quantity of a resting order.
+    ///
+    /// `new_quantity` is the new *remaining* quantity, not a new total order
+    /// size. An order with 20 left that is modified to 25 rests 25, whatever it
+    /// filled beforehand. FIX models this the other way, as a new total, but
+    /// that needs the original quantity stored per resting order and the book
+    /// keeps only the remainder (DD-017, DD-031).
+    ///
+    /// Queue priority follows the usual venue rule:
+    ///
+    /// | Change | Priority |
+    /// |---|---|
+    /// | quantity reduced, same price | retained |
+    /// | quantity unchanged, same price | retained |
+    /// | quantity increased | lost |
+    /// | price changed | lost |
+    ///
+    /// Shrinking an order takes nothing from the orders behind it, so there is
+    /// no reason to move it back. Growing it does, so it goes to the back.
+    ///
+    /// A modify that reprices an order across the spread trades, exactly as a
+    /// fresh order at that price would. `on_trade` is called for each execution.
+    /// The order keeps its id throughout.
+    template <typename TradeSink>
+    [[nodiscard]] ModifyResult modify(OrderId id, Price new_price, Quantity new_quantity,
+                                      TradeSink&& on_trade) {
+        if (!id.is_valid()) {
+            return ModifyResult{ModifyStatus::RejectedInvalidId, Quantity{}, Quantity{},
+                                QueuePriority::Lost};
+        }
+        if (!new_quantity.is_valid()) {
+            // Modifying to zero would mean deleting the order, which is cancel's
+            // job. Rejecting keeps the two operations distinct.
+            return ModifyResult{ModifyStatus::RejectedInvalidQuantity, Quantity{}, Quantity{},
+                                QueuePriority::Lost};
+        }
+
+        const std::optional<RestingOrder> existing = book_.resting_order(id);
+        if (!existing.has_value()) {
+            return ModifyResult{ModifyStatus::UnknownOrder, Quantity{}, Quantity{},
+                                QueuePriority::Lost};
+        }
+
+        const bool price_changed = new_price != existing->price;
+        const bool quantity_increased = new_quantity > existing->remaining;
+
+        if (!price_changed && !quantity_increased) {
+            // Same price, and not larger. The order stays exactly where it is.
+            if (new_quantity < existing->remaining) {
+                [[maybe_unused]] const bool reduced =
+                    book_.reduce(id, existing->remaining - new_quantity);
+                assert(reduced);
+            }
+            return ModifyResult{ModifyStatus::Modified, Quantity{}, new_quantity,
+                                QueuePriority::Retained};
+        }
+
+        // Priority is lost, so the order leaves and comes back as a new arrival.
+        // Routing it through submit() rather than straight back into the book is
+        // what makes a repriced order trade when it now crosses.
+        [[maybe_unused]] const bool removed = book_.remove(id);
+        assert(removed && "resting_order found it but remove did not");
+
+        // Every rejection submit() can produce is already ruled out: the id was
+        // just removed so it cannot collide, and a Limit/GoodTillCancel order
+        // built from a valid id, a book-supplied side and a non-zero quantity is
+        // structurally valid.
+        const SubmitResult result =
+            submit(Order::limit(id, existing->side, new_price, new_quantity),
+                   std::forward<TradeSink>(on_trade));
+        assert(result.accepted() && "the replacement order should always be acceptable");
+
+        return ModifyResult{ModifyStatus::Modified, result.filled, result.resting,
+                            QueuePriority::Lost};
     }
 
     /// Cancels a resting order.

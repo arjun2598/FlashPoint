@@ -237,6 +237,18 @@ std::optional<Quantity> OrderBook::remaining_of(OrderId id) const {
     return nodes_[entry->second.node].remaining;
 }
 
+std::optional<RestingOrder> OrderBook::resting_order(OrderId id) const {
+    const auto entry = index_.find(id);
+    if (entry == index_.end()) {
+        return std::nullopt;
+    }
+
+    // The locator already carries side and price, so this costs one hash lookup
+    // and one node read. No level lookup is needed.
+    const Locator& locator = entry->second;
+    return RestingOrder{id, locator.side, locator.price, nodes_[locator.node].remaining};
+}
+
 bool OrderBook::reduce(OrderId id, Quantity by) {
     const auto entry = index_.find(id);
     if (entry == index_.end()) {

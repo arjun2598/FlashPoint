@@ -63,6 +63,24 @@ inline std::ostream& operator<<(std::ostream& os, CancelStatus status) {
     return os << to_string(status);
 }
 
+inline std::ostream& operator<<(std::ostream& os, QueuePriority priority) {
+    return os << to_string(priority);
+}
+
+inline std::ostream& operator<<(std::ostream& os, ModifyStatus status) {
+    return os << to_string(status);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const ModifyResult& result) {
+    return os << "ModifyResult{" << result.status << ", filled=" << result.filled
+              << ", resting=" << result.resting << ", priority=" << result.priority << '}';
+}
+
+inline std::ostream& operator<<(std::ostream& os, const RestingOrder& order) {
+    return os << "RestingOrder{" << order.id << ", " << order.side << ", " << order.price << ", "
+              << order.remaining << '}';
+}
+
 inline std::ostream& operator<<(std::ostream& os, const CancelResult& result) {
     return os << "CancelResult{" << result.status << ", cancelled=" << result.cancelled << '}';
 }

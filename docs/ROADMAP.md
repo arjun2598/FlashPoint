@@ -12,7 +12,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 5   | Matching engine — limit orders                                      | ✔ Complete                     |
 | 6   | Market orders & time-in-force (IOC / FOK)                           | ✔ Complete                     |
 | 7   | Cancel orders                                                       | ✔ Complete                     |
-| 8   | Modify / cancel-replace                                             | ⬜ Not started                 |
+| 8   | Modify / cancel-replace                                             | ✔ Complete                     |
 | 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ⬜ Not started                 |
 | 10  | Benchmarks (throughput & latency percentiles)                       | ⬜ Not started                 |
 | 11  | Measured performance tuning pass                                    | ⬜ Not started                 |
@@ -195,6 +195,37 @@ Decisions recorded as DD-028 and DD-029.
   that a cancel for an order which filled in the meantime reports
   `UnknownOrder`, and that the book is never left crossed.
 
+## Milestone 8 — Modify ✔
+
+**Objective:** change a resting order's price or quantity, applying the venue
+rule for when that costs the order its place in line.
+
+Delivered:
+
+- `MatchingEngine::modify(id, price, quantity, sink)` returning
+  `ModifyResult{status, filled, resting, priority}`.
+- `QueuePriority` and `ModifyStatus`.
+- `OrderBook::resting_order(OrderId)`, returning a `RestingOrder` snapshot by
+  value.
+- 19 tests in `tests/modify_test.cpp`, including a randomised run that checks the
+  priority rule on every applied modify.
+
+Decisions recorded as DD-030 through DD-033.
+
+**Verification performed:**
+
+- 148/148 tests pass under ASan/UBSan.
+- **Mutation tested.** Four injected bugs, all caught: an unchanged quantity
+  wrongly losing priority (2 failures), a price change not being detected (7),
+  the retained path reporting Lost (5), and `reduce` called with the wrong
+  amount (1).
+- Every priority test is followed by an order that trades against the level.
+  Aggregate depth is identical whether priority was kept or lost, so checking
+  who fills next is the only way to see the difference.
+- The randomised run mixes submits, modifies and cancels, and independently
+  recomputes the expected priority for every applied modify. It also asserts both
+  branches of the rule were exercised at least fifty times each.
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
@@ -230,5 +261,10 @@ Recorded here so they are not silently defaulted:
   which is a venue-halt operation rather than a client one.
 - **Richer cancel rejection reasons**: Would need an order-history subsystem
   tracking terminated ids (DD-029). Belongs in front of the engine, not in it.
+- **FIX-style modify semantics**: Two known divergences, both deliberate.
+  `new_quantity` is the new remaining rather than a new total (DD-031), and a
+  modify keeps the order's id rather than minting a replacement (DD-033).
+  Closing the first means adding original quantity to `Node`; the second means
+  the same order-history mapping as above.
 - **Trade sequence numbers**: To be decided at Milestone 9, which owns the event
   stream and therefore the counter (DD-020).
