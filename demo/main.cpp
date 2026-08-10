@@ -10,6 +10,7 @@
 // streams, which is why both exist for the price of one.
 
 #include "generator.hpp"
+#include "render.hpp"
 #include "session.hpp"
 
 #include <charconv>
@@ -114,11 +115,13 @@ int main(int argc, char** argv) {
             std::cerr << "--generate and --chunk must be greater than zero\n";
             return 2;
         }
-        flashpoint::demo::run_generator(std::cout, config);
+        const auto result = flashpoint::demo::run_generator(config);
+        flashpoint::demo::print_generator_result(std::cout, config, result);
         return 0;
     }
 
-    Session session{std::cout};
+    flashpoint::demo::TextReporter reporter{std::cout};
+    Session session{reporter};
 
     if (path == "-") {
         session.run(std::cin, false);
@@ -130,7 +133,9 @@ int main(int argc, char** argv) {
         }
         session.run(file, false);
     } else if (interactive) {
+        std::cout << "FlashPoint demo. Type 'help' for commands, 'quit' to leave.\n";
         session.run(std::cin, true);
+        std::cout << '\n';
     } else {
         // Nothing asked for, so run the tour. Reading standard input here on the
         // guess that it might be a pipe would hang whenever it is an open pipe

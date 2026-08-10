@@ -11,6 +11,13 @@ commit.
 
 ## See it run
 
+**[Try it in your browser →](https://arjun2598.github.io/FlashPoint/)** — the
+engine compiled to WebAssembly. Replay the tour below, edit it, or generate
+synthetic order flow with a seed of your choosing. No install, and it is the
+same engine, not a reimplementation.
+
+Or locally:
+
 ```
 $ cmake --preset dev && cmake --build --preset dev --parallel
 $ ./build/dev/demo/flashpoint_demo
@@ -69,6 +76,7 @@ optimised one. Full details in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 | **Modify** | Shrinking keeps queue position, growing or repricing loses it. A reprice across the spread trades. |
 | **Event stream** | Every operation publishes an ordered, sequence-numbered record: acknowledgements, executions, rejections, cancellations, amendments. One flat trivially copyable type, so a stream can be written and read back with no encoding step. |
 | **Market data** | Top of book and an L2 depth snapshot that fills a caller-supplied buffer without allocating. |
+| **Runs in a browser** | The whole engine compiles to WebAssembly unchanged. No I/O, no threads, no platform calls, and events already go to a caller-supplied sink so a JavaScript callback is a valid sink. |
 
 ## How it works
 

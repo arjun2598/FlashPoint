@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlashPoint — matching engine, running in your browser</title>
+    <meta
+      name="description"
+      content="A C++20 limit order book and matching engine compiled to WebAssembly. Replay a scenario or generate synthetic order flow and watch the book react."
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <h1>FlashPoint</h1>
+        <p class="tagline">
+          A limit order book and matching engine in C++20, compiled to
+          WebAssembly. This is the same engine the tests and benchmarks run
+          against — not a reimplementation. It is matching orders on your
+          machine, in this tab.
+        </p>
+        <p class="links">
+          <a href="https://github.com/arjun2598/FlashPoint">Source on GitHub</a>
+          <span class="dot">·</span>
+          <span id="version" class="muted">loading…</span>
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <nav class="tabs" role="tablist">
+        <button id="tab-scenario" class="tab is-active" role="tab" aria-selected="true">
+          Scenario
+        </button>
+        <button id="tab-generate" class="tab" role="tab" aria-selected="false">
+          Synthetic feed
+        </button>
+      </nav>
+
+      <!-- Scenario ------------------------------------------------------ -->
+      <section id="panel-scenario" class="panel" role="tabpanel">
+        <div class="controls">
+          <p class="hint">
+            One command per line. <code>#</code> is a comment, <code>##</code> is
+            a heading. The script below is the tour the terminal demo runs by
+            default — edit it and run it again.
+          </p>
+          <div class="button-row">
+            <button id="run-scenario" class="primary">Run scenario</button>
+            <button id="reset-scenario" class="secondary">Reset to tour</button>
+            <span id="scenario-status" class="status"></span>
+          </div>
+          <details class="syntax">
+            <summary>Commands</summary>
+            <pre>add &lt;id&gt; &lt;buy|sell&gt; &lt;price|market&gt; &lt;qty&gt; [gtc|ioc|fok]
+cancel &lt;id&gt;
+modify &lt;id&gt; &lt;price&gt; &lt;qty&gt;
+show [depth]</pre>
+          </details>
+        </div>
+
+        <div class="split">
+          <textarea
+            id="script"
+            class="script"
+            spellcheck="false"
+            aria-label="Scenario script"
+          ></textarea>
+          <div id="scenario-output" class="output" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <!-- Generator ----------------------------------------------------- -->
+      <section id="panel-generate" class="panel is-hidden" role="tabpanel">
+        <div class="controls">
+          <p class="hint">
+            Random order flow around a drifting mid: passive adds, cancels,
+            modifies and a minority of aggressive orders that cross the spread.
+            The same seed always produces the same run.
+          </p>
+          <div class="field-row">
+            <label>
+              Orders
+              <input id="gen-orders" type="number" value="200000" min="1000" max="5000000" step="1000" />
+            </label>
+            <label>
+              Seed
+              <input id="gen-seed" type="number" value="7" min="0" max="999999" />
+            </label>
+            <label>
+              Market protection (ticks)
+              <input id="gen-protection" type="number" value="10" min="0" max="1000" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="run-generate" class="primary">Run</button>
+            <span id="generate-status" class="status"></span>
+          </div>
+        </div>
+
+        <div id="generate-output" class="output" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Built with Emscripten from the same source as the native binaries. The
+        engine needed no changes to run here: no I/O, no threads, no platform
+        calls, and events already go to a caller-supplied sink.
+      </p>
+    </footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -177,6 +177,40 @@ help
 quit
 ```
 
+## The browser demo
+
+The same engine compiled to WebAssembly. Needs Emscripten, which nothing else in
+the project does, so the target is off unless asked for and only configures
+under `emcmake`.
+
+```bash
+brew install emscripten
+```
+
+```bash
+emcmake cmake -S . -B build/web -DCMAKE_BUILD_TYPE=Release -DFLASHPOINT_BUILD_WEB=ON -DFLASHPOINT_BUILD_TESTS=OFF -DFLASHPOINT_BUILD_DEMO=OFF && cmake --build build/web --parallel
+```
+
+The output directory is servable as-is. It cannot be opened with `file://`
+because ES modules and WebAssembly both need a real origin:
+
+```bash
+python3 -m http.server 8099 --directory build/web/web
+```
+
+CI builds and publishes it to GitHub Pages on every push to main
+(`.github/workflows/pages.yml`).
+
+### Watch out for
+
+- **`std::size_t` is 32 bits on wasm32**, while the `Rep` types stay 64. That is
+  a third relationship on top of the two in the gotchas below, and the only one
+  where a conversion actually narrows. The same rule handles all three: do not
+  convert between them, and route a small value through `int` when you must.
+- **The page is presentation only.** The C++ returns JSON and the JavaScript
+  renders it. If you find yourself putting matching logic in `app.js`, it belongs
+  in the engine.
+
 ## Benchmarks
 
 Benchmarks only mean anything in a Release build, so they are off in the `dev`

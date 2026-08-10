@@ -18,6 +18,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 11  | Measured performance tuning pass                                    | ✔ Complete                     |
 | 12  | Demo application (order feed replay)                                | ✔ Complete                     |
 | 13  | Documentation polish & architecture diagrams                        | ✔ Complete                     |
+| 14  | Browser demo (WebAssembly)                                          | ✔ Complete                     |
 
 ## Milestone 1 — Project setup & build system ✔
 
@@ -405,6 +406,39 @@ Delivered:
   looking right is not a check.
 - Every index link resolves to an anchor that exists, checked mechanically.
 - No dangling `DD-0XX` references anywhere in the code or documentation.
+
+## Milestone 14 — Browser demo ✔
+
+**Objective:** a link to run a demo of the project.
+
+Delivered:
+
+- `web/` — Emscripten bindings and a page. Off unless `FLASHPOINT_BUILD_WEB` is
+  set, and only configures under `emcmake`, so the normal build is untouched.
+- Two modes sharing one renderer: a scenario editor preloaded with the tour, and
+  a synthetic feed with seed, order count and protection band.
+- `.github/workflows/pages.yml` builds and publishes to GitHub Pages on push to
+  main, and fails if any expected file is missing rather than deploying a page
+  that loads nothing.
+
+**The engine needed no changes**. Only a binding layer and a page are
+new, and the scenario parser is shared with the terminal demo rather than
+duplicated: `Session` now reports through an interface, so a terminal reporter
+writes text and a browser reporter builds JSON from the same parse.
+
+**Verification performed:**
+
+- Loaded in a real browser and driven end to end. The tour produces 27 events,
+  8 trades and 10 headings in the page — identical to the terminal.
+- The synthetic feed runs 200,000 orders in 0.19 s in the browser, at 1.31 M
+  orders/second against 5.7 M native. The page states the WebAssembly figure
+  rather than quoting the native one.
+- Two rendering defects found and fixed by inspecting the live DOM rather than
+  by eye: the ladder header was a four-column grid while its rows were six, so
+  the labels did not sit over their numbers; and rows where one side had no
+  level still drew that side's border as a coloured sliver.
+- The terminal demo's output is unchanged after the refactor, checked by diff.
+- All native targets still build clean under clang and GCC, 190/190 tests pass.
 
 ## Parked decisions
 

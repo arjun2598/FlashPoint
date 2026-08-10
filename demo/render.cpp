@@ -38,7 +38,14 @@ constexpr Quantity::Rep kBarWidth = 12;
     // Rounded up, so any non-zero quantity draws at least one character.
     const Quantity::Rep scaled =
         (quantity.value() * kBarWidth + largest.value() - 1) / largest.value();
-    return std::string(std::min(scaled, kBarWidth), '#');
+
+    // Routed through int, which is a genuine conversion from Quantity::Rep and
+    // to std::size_t on every target. Going straight from one to the other is
+    // a no-op cast on Linux (-Wuseless-cast), a required one on macOS, and an
+    // actual narrowing on wasm32 where size_t is 32 bits. No single spelling
+    // satisfies all three; a small intermediate does.
+    const int width = static_cast<int>(std::min(scaled, kBarWidth));
+    return std::string(static_cast<std::size_t>(width), '#');
 }
 
 [[nodiscard]] std::string side_word(Side side) {
@@ -121,14 +128,20 @@ void print_book(std::ostream& out, const OrderBook& book, std::size_t depth) {
     const std::size_t asks =
         book.snapshot(Side::Sell, std::span<LevelSnapshot>{ask_rows.data(), rows});
 
+    print_levels(out, std::span<const LevelSnapshot>{bid_rows.data(), bids},
+                 std::span<const LevelSnapshot>{ask_rows.data(), asks}, book.top_of_book());
+}
+
+void print_levels(std::ostream& out, std::span<const LevelSnapshot> bids,
+                  std::span<const LevelSnapshot> asks, const TopOfBook& top) {
     // Bars are scaled against the largest quantity on screen, so the two sides
     // are directly comparable.
     Quantity largest{};
-    for (std::size_t i = 0; i < bids; ++i) {
-        largest = std::max(largest, bid_rows[i].quantity);
+    for (const LevelSnapshot& row : bids) {
+        largest = std::max(largest, row.quantity);
     }
-    for (std::size_t i = 0; i < asks; ++i) {
-        largest = std::max(largest, ask_rows[i].quantity);
+    for (const LevelSnapshot& row : asks) {
+        largest = std::max(largest, row.quantity);
     }
 
     const std::string rule(kHalfWidth, '-');
@@ -144,30 +157,37 @@ void print_book(std::ostream& out, const OrderBook& book, std::size_t depth) {
 
     out << "  " << rule << '+' << rule << '\n';
 
-    for (std::size_t i = 0; i < std::max(bids, asks); ++i) {
+    for (std::size_t i = 0; i < std::max(bids.size(), asks.size()); ++i) {
         std::ostringstream left;
-        if (i < bids) {
-            left << std::setw(kBarColumn) << bar(bid_rows[i].quantity, largest) << ' '
-                 << std::setw(kQuantityColumn) << bid_rows[i].quantity.value() << "  "
-                 << std::setw(kPriceColumn) << bid_rows[i].price.ticks();
+        if (i < bids.size()) {
+            left << std::setw(kBarColumn) << bar(bids[i].quantity, largest) << ' '
+                 << std::setw(kQuantityColumn) << bids[i].quantity.value() << "  "
+                 << std::setw(kPriceColumn) << bids[i].price.ticks();
         }
         out << "  " << pad_to(left.str(), kHalfWidth) << '|';
 
-        if (i < asks) {
-            out << "  " << std::setw(kPriceColumn) << ask_rows[i].price.ticks() << "  "
-                << std::setw(kQuantityColumn) << ask_rows[i].quantity.value() << ' '
-                << bar(ask_rows[i].quantity, largest);
+        if (i < asks.size()) {
+            out << "  " << std::setw(kPriceColumn) << asks[i].price.ticks() << "  "
+                << std::setw(kQuantityColumn) << asks[i].quantity.value() << ' '
+                << bar(asks[i].quantity, largest);
         }
         out << '\n';
     }
 
-    if (bids == 0 && asks == 0) {
+    if (bids.empty() && asks.empty()) {
         out << "  " << pad_to("(no bids)", kHalfWidth) << '|' << "  (no asks)\n";
     }
 
     out << "  " << rule << '+' << rule << '\n';
 
-    const TopOfBook top = book.top_of_book();
+    std::size_t resting = 0;
+    for (const LevelSnapshot& row : bids) {
+        resting += row.order_count;
+    }
+    for (const LevelSnapshot& row : asks) {
+        resting += row.order_count;
+    }
+
     out << "  ";
     if (top.has_bid()) {
         out << "bid " << top.bid_price->ticks();
@@ -183,12 +203,32 @@ void print_book(std::ostream& out, const OrderBook& book, std::size_t depth) {
     if (const auto spread = top.spread(); spread.has_value()) {
         out << "   |   spread " << *spread;
     }
-    out << "   |   " << book.size() << (book.size() == 1 ? " order" : " orders") << " resting\n\n";
+    out << "   |   " << resting << (resting == 1 ? " order" : " orders") << " shown\n\n";
 }
 
 void print_heading(std::ostream& out, std::string_view text) {
     out << '\n' << text << '\n';
     out << std::string(text.size(), '=') << '\n';
+}
+
+void TextReporter::heading(std::string_view text) {
+    print_heading(out_, text);
+}
+
+void TextReporter::event(const Event& event) {
+    out_ << format_event(event) << '\n';
+}
+
+void TextReporter::error(std::string_view message) {
+    out_ << "  ! " << message << '\n';
+}
+
+void TextReporter::show(const OrderBook& book, std::size_t depth) {
+    print_book(out_, book, depth);
+}
+
+void TextReporter::prompt() {
+    out_ << "> " << std::flush;
 }
 
 }  // namespace flashpoint::demo

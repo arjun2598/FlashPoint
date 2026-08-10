@@ -1,7 +1,6 @@
 #include "session.hpp"
 
 #include "default_scenario.hpp"
-#include "render.hpp"
 
 #include "flashpoint/event.hpp"
 #include "flashpoint/order.hpp"
@@ -10,7 +9,6 @@
 #include <charconv>
 #include <istream>
 #include <optional>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -99,7 +97,7 @@ std::string_view default_scenario() {
 }
 
 void Session::fail(std::string_view message) {
-    out_ << "  ! " << message << '\n';
+    reporter_.error(message);
     had_error_ = true;
 }
 
@@ -109,7 +107,7 @@ bool Session::execute(std::string_view line) {
     // "##" narrates, "#" is a silent comment. That lets a scenario file explain
     // itself without a separate command.
     if (line.starts_with("##")) {
-        print_heading(out_, trim(line.substr(2)));
+        reporter_.heading(trim(line.substr(2)));
         return true;
     }
     if (line.empty() || line.front() == '#') {
@@ -123,7 +121,7 @@ bool Session::execute(std::string_view line) {
 
     // Every mutating command publishes into the same sink, so the output shows
     // the engine's real event stream rather than a summary invented here.
-    auto sink = [this](const Event& event) { out_ << format_event(event) << '\n'; };
+    auto sink = [this](const Event& event) { reporter_.event(event); };
 
     const std::string_view command = words[0];
 
@@ -132,7 +130,7 @@ bool Session::execute(std::string_view line) {
     }
 
     if (command == "help") {
-        out_ << kUsage;
+        reporter_.error(kUsage);
         return true;
     }
 
@@ -146,7 +144,7 @@ bool Session::execute(std::string_view line) {
             }
             depth = *parsed;
         }
-        print_book(out_, engine_.book(), depth);
+        reporter_.show(engine_.book(), depth);
         return true;
     }
 
@@ -238,14 +236,10 @@ bool Session::execute(std::string_view line) {
 }
 
 void Session::run(std::istream& in, bool interactive) {
-    if (interactive) {
-        out_ << "FlashPoint demo. Type 'help' for commands, 'quit' to leave.\n";
-    }
-
     std::string line;
     while (true) {
         if (interactive) {
-            out_ << "> " << std::flush;
+            reporter_.prompt();
         }
         if (!std::getline(in, line)) {
             break;
@@ -253,10 +247,6 @@ void Session::run(std::istream& in, bool interactive) {
         if (!execute(line)) {
             break;
         }
-    }
-
-    if (interactive) {
-        out_ << '\n';
     }
 }
 

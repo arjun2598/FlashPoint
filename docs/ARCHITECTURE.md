@@ -28,6 +28,7 @@ FlashPoint/
 ├── tests/                      GoogleTest suite, one executable
 ├── benchmarks/                 Throughput (Google Benchmark) + latency harness
 ├── demo/                       Command interpreter, book renderer, feed generator
+├── web/                        WebAssembly bindings and the browser page
 ├── docs/                       This directory
 └── .github/workflows/ci.yml    Build matrix + format gate
 ```

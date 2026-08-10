@@ -1,0 +1,565 @@
+/* FlashPoint browser demo.
+ *
+ * A trading-terminal palette without pretending to be one: dark, dense, and
+ * monospaced where numbers need to line up. Prices and quantities use tabular
+ * figures so columns stay aligned as values change.
+ */
+
+:root {
+  --bg: #0d1117;
+  --bg-raised: #151b23;
+  --bg-sunken: #010409;
+  --border: #2a313c;
+  --text: #e6edf3;
+  --text-dim: #9198a1;
+  --text-faint: #6b7280;
+  --bid: #3fb950;
+  --bid-bar: #23863633;
+  --ask: #f85149;
+  --ask-bar: #da363333;
+  --accent: #58a6ff;
+  --warn: #d29922;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* --- masthead ---------------------------------------------------------- */
+
+.masthead {
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #161b22 0%, var(--bg) 100%);
+}
+
+.masthead-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 2.2rem 1.5rem 1.8rem;
+}
+
+h1 {
+  margin: 0 0 0.4rem;
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0 0 0.7rem;
+  max-width: 62ch;
+  color: var(--text-dim);
+}
+
+.links {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.dot {
+  color: var(--text-faint);
+  margin: 0 0.5rem;
+}
+
+.muted {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+/* --- layout ------------------------------------------------------------ */
+
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.4rem;
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font: inherit;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.panel.is-hidden {
+  display: none;
+}
+
+.controls {
+  margin-bottom: 1.1rem;
+}
+
+.hint {
+  margin: 0 0 0.9rem;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  max-width: 78ch;
+}
+
+code {
+  font-family: var(--mono);
+  background: var(--bg-raised);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.button-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.field-row {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+input[type="number"] {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  width: 11rem;
+}
+
+input:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+button.primary {
+  background: #238636;
+  border-color: #2ea043;
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #2ea043;
+}
+
+button.secondary {
+  background: var(--bg-raised);
+  color: var(--text);
+}
+
+button.secondary:hover:not(:disabled) {
+  border-color: var(--text-faint);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.status {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+.syntax {
+  margin-top: 0.8rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.syntax summary {
+  cursor: pointer;
+}
+
+.syntax pre {
+  font-family: var(--mono);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  overflow-x: auto;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.script {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.83rem;
+  line-height: 1.5;
+  min-height: 30rem;
+  padding: 0.9rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.output {
+  min-height: 8rem;
+  min-width: 0;
+}
+
+/* --- rendered results -------------------------------------------------- */
+
+.step-heading {
+  margin: 1.6rem 0 0.7rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.step-heading:first-child {
+  margin-top: 0;
+}
+
+.events {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+.event {
+  display: grid;
+  grid-template-columns: 3.6rem 6.2rem minmax(0, 1fr);
+  gap: 0.6rem;
+  padding: 0.3rem 0.8rem;
+  border-bottom: 1px solid #1c222b;
+  font-variant-numeric: tabular-nums;
+}
+
+.event:last-child {
+  border-bottom: none;
+}
+
+.event .seq {
+  color: var(--text-faint);
+}
+
+.event .kind {
+  font-weight: 600;
+}
+
+.event.accepted .kind {
+  color: var(--accent);
+}
+.event.trade {
+  background: #1a2430;
+}
+.event.trade .kind {
+  color: var(--warn);
+}
+.event.cancelled .kind {
+  color: var(--text-dim);
+}
+.event.modified .kind {
+  color: #a371f7;
+}
+.event.rejected {
+  background: #2d1618;
+}
+.event.rejected .kind {
+  color: var(--ask);
+}
+
+.event .detail {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.error-line {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--warn);
+  background: #241c0d;
+  border: 1px solid #3d2f10;
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+/* --- book ladder ------------------------------------------------------- */
+
+.ladder {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 1.1rem;
+  background: var(--bg-raised);
+}
+
+/* Six columns: depth bar, size, price | price, size, depth bar.
+ * Head and rows share the definition so the labels sit over their numbers. */
+.ladder-head,
+.ladder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 5.5rem 5.5rem 5.5rem minmax(0, 1fr);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ladder-head {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.45rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+/* Bid columns are right-aligned toward the spread; ask columns left-aligned
+ * away from it, so the two sides mirror around the middle. */
+.ladder-head span:nth-child(2),
+.ladder-head span:nth-child(3) {
+  text-align: right;
+  padding-right: 0.7rem;
+}
+
+.ladder-head span:nth-child(4),
+.ladder-head span:nth-child(5) {
+  text-align: left;
+  padding-left: 0.7rem;
+}
+
+.ladder-row {
+  padding: 0.18rem 0.8rem;
+  align-items: center;
+}
+
+.ladder-row .qty {
+  text-align: right;
+  padding-right: 0.7rem;
+  color: var(--text-dim);
+}
+
+.ladder-row .price {
+  text-align: right;
+  padding-right: 0.7rem;
+  font-weight: 600;
+}
+
+.ladder-row .price.bid {
+  color: var(--bid);
+}
+.ladder-row .price.ask {
+  color: var(--ask);
+  text-align: left;
+  padding-right: 0;
+  padding-left: 0.7rem;
+}
+.ladder-row .qty.ask-qty {
+  text-align: left;
+  padding-right: 0;
+  padding-left: 0.7rem;
+}
+
+/* Depth bars grow inward from the outer edges toward the spread. */
+.depth {
+  height: 1rem;
+  border-radius: 2px;
+}
+
+.depth.bid-bar {
+  background: var(--bid-bar);
+  border-right: 2px solid var(--bid);
+  margin-left: auto;
+}
+
+.depth.ask-bar {
+  background: var(--ask-bar);
+  border-left: 2px solid var(--ask);
+  margin-right: auto;
+}
+
+.ladder-foot {
+  display: flex;
+  gap: 1.4rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.8rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ladder-foot b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ladder-empty {
+  padding: 1.2rem 0.8rem;
+  text-align: center;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+/* --- statistics -------------------------------------------------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 1.2rem;
+}
+
+.stat {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+}
+
+.stat .label {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stat .value {
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.15rem;
+}
+
+table.chunks {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 1.2rem;
+}
+
+table.chunks th {
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 500;
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+table.chunks td {
+  text-align: right;
+  padding: 0.28rem 0.7rem;
+  border-bottom: 1px solid #1c222b;
+}
+
+table.chunks tr:last-child td {
+  border-bottom: none;
+}
+
+.section-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 0 0 0.5rem;
+}
+
+.note {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  max-width: 78ch;
+  margin: 0 0 1.1rem;
+}
+
+footer {
+  border-top: 1px solid var(--border);
+  margin-top: 2.5rem;
+}
+
+footer p {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 1.3rem 1.5rem 2.2rem;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}

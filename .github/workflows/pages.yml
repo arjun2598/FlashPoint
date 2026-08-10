@@ -1,0 +1,72 @@
+# Builds the WebAssembly demo and publishes it to GitHub Pages.
+#
+# Separate from ci.yml. The CI workflow gates merges and must stay
+# fast; this one produces an artifact and only runs on main. A failure here
+# means the site is stale, not that the code is broken.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages needs these; the default token is read-only.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. Queue rather than cancel, so a push during a deploy
+# does not leave the site half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.64
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure
+        run: |
+          emcmake cmake -S . -B build/web \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DFLASHPOINT_BUILD_WEB=ON \
+            -DFLASHPOINT_BUILD_TESTS=OFF \
+            -DFLASHPOINT_BUILD_DEMO=OFF
+
+      - name: Build
+        run: cmake --build build/web --parallel
+
+      - name: Check the expected files exist
+        run: |
+          # A missing .wasm still "succeeds" as a build but produces a page that
+          # loads nothing, so fail here rather than deploying a broken site.
+          for f in index.html app.js style.css flashpoint.js flashpoint.wasm; do
+            test -s "build/web/web/$f" || { echo "missing or empty: $f"; exit 1; }
+          done
+          ls -la build/web/web
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
