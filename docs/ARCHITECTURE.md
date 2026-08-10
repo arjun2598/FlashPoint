@@ -1,9 +1,9 @@
 # Architecture
 
-> **Status: skeleton.** Only the build-level structure exists as of Milestone 1.
-> Component sections are filled in by the milestone that introduces them, not
-> written speculatively in advance. Anything below marked *(planned)* is
-> intent, not implemented code.
+Every component section here was written by the milestone that built it, not
+planned in advance. Where a decision is contested, this document states what was
+chosen and links to [`DESIGN_DECISIONS.md`](DESIGN_DECISIONS.md) for the
+alternatives and what they would have cost.
 
 ## Repository layout
 
@@ -34,19 +34,19 @@ FlashPoint/
 
 ## Build-level structure
 
+```mermaid
+flowchart TD
+    lib["flashpoint<br/>(static library — all engine logic)"]
+    tests["flashpoint_tests"]
+    bench["throughput + latency<br/>benchmarks"]
+    demo["flashpoint_demo"]
+    tests --> lib
+    bench --> lib
+    demo --> lib
 ```
-                    ┌─────────────────────────┐
-                    │   flashpoint (STATIC)   │
-                    │   all engine logic      │
-                    └───────────┬─────────────┘
-                                │ linked by
-          ┌─────────────────────┼─────────────────────┐
-          │                     │                     │
-  ┌───────▼────────┐   ┌────────▼────────┐   ┌────────▼────────┐
-  │ flashpoint_    │   │ throughput +    │   │ flashpoint_     │
-  │ tests          │   │ latency benches │   │ demo            │
-  └────────────────┘   └─────────────────┘   └─────────────────┘
-```
+
+Everything lives in the library; the executables are thin. An engine that only
+existed inside `main()` could not be tested or benchmarked (DD-001).
 
 Two INTERFACE targets carry build policy rather than global flags:
 
@@ -55,23 +55,94 @@ Two INTERFACE targets carry build policy rather than global flags:
 - `flashpoint_sanitizers` — linked `PUBLIC`, because sanitizer flags must appear
   on both the compile and link lines of every target in the graph.
 
-## Layering (planned)
+## Layering
 
-The intended dependency direction, innermost first. Each layer may depend only
-on layers above it.
+Dependencies point one way only. The domain types do not know the book exists,
+and the book does not know the engine exists.
 
-| Layer | Contents | Milestone |
-|-------|----------|-----------|
-| Domain types | `Price`, `Quantity`, `OrderId`, `Side`, `Order` — value types, no allocation, no I/O | 3 |
-| Book | `OrderBook` — price levels, FIFO priority within a level, order lookup | 4 |
-| Engine | `MatchingEngine` — applies commands to the book, produces events | 5–8 |
-| Events | Trade / acknowledgement / rejection stream, L2 market data | 9 |
-| Applications | Tests, benchmarks, demo | 1, 10, 12 |
+```mermaid
+flowchart TD
+    apps["Applications<br/>tests · benchmarks · demo"]
+    engine["MatchingEngine<br/>matching rules, venue policy, event stream"]
+    book["OrderBook<br/>price-time priority container"]
+    types["Domain types<br/>Side · Price · Quantity · OrderId · Order"]
+    events["Event · TopOfBook · LevelSnapshot<br/>values crossing the boundary"]
 
-The domain layer must not know the book exists; the book must not know the
-engine exists. This is what keeps the book independently testable, and it is the
-boundary that makes it possible to swap the book's internal data structure at
-Milestone 11 without touching engine logic.
+    apps --> engine
+    engine --> book
+    engine -.publishes.-> events
+    book --> types
+    book -.produces.-> events
+    events --> types
+```
+
+| Layer | Contents | Built at |
+|-------|----------|----------|
+| Domain types | `Price`, `Quantity`, `OrderId`, `Side`, `Order` — value types, no allocation, no I/O | Milestone 3 |
+| Book | `OrderBook` — price levels, FIFO priority within a level, order lookup | Milestone 4 |
+| Engine | `MatchingEngine` — applies commands to the book, produces events | Milestones 5–8 |
+| Events and market data | `Event` stream, `TopOfBook`, `LevelSnapshot` | Milestone 9 |
+| Applications | Tests, benchmarks, demo | Milestones 1, 10, 12 |
+
+That direction is what keeps the book independently testable, and it is what
+made the Milestone 11 tuning pass a change to the book alone with no test edits
+at all.
+
+## How an order flows through
+
+The one path worth following end to end. Everything else in this document is a
+detail of one of these steps.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Caller
+    participant E as MatchingEngine
+    participant B as OrderBook
+    participant S as Event sink
+
+    C->>E: submit(order, sink)
+    E->>E: order.is_valid()?
+    alt malformed
+        E->>S: Rejected
+        E-->>C: SubmitResult: RejectedInvalid
+    else well formed
+        E->>S: Accepted
+        E->>E: effective limit<br/>(own price, or protection price)
+        opt FillOrKill
+            E->>B: quantity_available(side, limit)
+            Note over E: not enough — cancel without<br/>emitting any trade
+        end
+        loop while quantity remains and the touch is within the limit
+            E->>B: best_ask() / best_bid()
+            E->>B: front_at(), remaining_of()
+            E->>S: Trade at the maker's price
+            E->>B: remove() if exhausted, else reduce()
+        end
+        alt GoodTillCancel remainder
+            E->>B: add(remainder)
+        else cannot rest
+            E->>S: Cancelled
+        end
+        E-->>C: SubmitResult: filled, resting, cancelled
+    end
+```
+
+Four things in that picture carry most of the design:
+
+1. **Validation happens once, at the top.** Everything downstream, including
+   `OrderBook::add`, may assume what reaches it is well formed (DD-012).
+2. **The effective limit is resolved before the loop**, so limit and market
+   orders share one code path rather than branching inside it (DD-025).
+3. **Trades print at the maker's price.** Price improvement belongs to the
+   aggressor.
+4. **Fill-or-kill decides before it emits anything.** A trade handed to the sink
+   cannot be withdrawn, so there is no rollback path to get wrong (DD-026).
+
+`cancel` and `modify` follow the same shape: validate, publish what happened,
+touch the book. A modify that loses queue priority re-enters the matching loop
+directly rather than through `submit`, so the stream carries `Modified` rather
+than a second `Accepted` for an order the client never resubmitted (DD-037).
 
 ## Component detail
 

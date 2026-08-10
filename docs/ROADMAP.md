@@ -17,7 +17,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 10  | Benchmarks (throughput & latency percentiles)                       | ✔ Complete                     |
 | 11  | Measured performance tuning pass                                    | ✔ Complete                     |
 | 12  | Demo application (order feed replay)                                | ✔ Complete                     |
-| 13  | Documentation polish & architecture diagrams                        | ⬜ Not started                 |
+| 13  | Documentation polish & architecture diagrams                        | ✔ Complete                     |
 
 ## Milestone 1 — Project setup & build system ✔
 
@@ -292,7 +292,7 @@ Decisions recorded as DD-039 and DD-040.
 - Both harnesses build clean under `-Werror` and run to completion.
 - **Two bugs in the benchmarks themselves were found and fixed**, both recorded
   in `docs/PERFORMANCE.md`: `modify, priority retained` was measuring the
-  priority-*lost* path and then a no-op, and an add-only throughput benchmark was
+  priority-_lost_ path and then a no-op, and an add-only throughput benchmark was
   measuring node-pool growth rather than the add path. Neither would have failed
   anything. Both were caught by noticing a figure that did not move when the book
   shape changed, which it should have.
@@ -322,13 +322,13 @@ the measurements rather than intuition to choose what to change.
 
 **Measured result:**
 
-| Benchmark | deep before | deep after | change |
-|---|---:|---:|---:|
-| `best_bid` | 7.32 ns | 1.55 ns | **4.7× faster** |
-| `top_of_book` | 7.33 ns | 3.11 ns | **2.36× faster** |
-| `snapshot`, ten levels | 73.8 ns | 30.0 ns | **2.46× faster** |
-| `add_then_cancel` | 195 ns | 204 ns | unchanged |
-| `cross_one_level` | 35.4 ns | 35.8 ns | unchanged |
+| Benchmark              | deep before | deep after |           change |
+| ---------------------- | ----------: | ---------: | ---------------: |
+| `best_bid`             |     7.32 ns |    1.55 ns |  **4.7× faster** |
+| `top_of_book`          |     7.33 ns |    3.11 ns | **2.36× faster** |
+| `snapshot`, ten levels |     73.8 ns |    30.0 ns | **2.46× faster** |
+| `add_then_cancel`      |      195 ns |     204 ns |        unchanged |
+| `cross_one_level`      |     35.4 ns |    35.8 ns |        unchanged |
 
 All three read paths are now flat across book depth; they were 1.7× worse deep.
 The mutation paths are unchanged, since they never read the touch.
@@ -344,7 +344,7 @@ The mutation paths are unchanged, since they never read the touch.
 
 ## Milestone 12 — Demo application ✔
 
-**Objective:** something a reviewer can clone and run in ten seconds that makes
+**Objective:** enable others to clone and run in ten seconds, making
 the engine visible.
 
 Delivered:
@@ -375,6 +375,36 @@ Decisions recorded as DD-043 through DD-045.
 - **The generator settled DD-041.** Two million orders with levels churning
   throughout show flat throughput (176 ns/op at both 100k and 2M), so the
   reverted pooled allocator would not have helped a long-running book either.
+
+## Milestone 13 — Documentation polish ✔
+
+**Objective:** finalise the project details.
+
+Delivered:
+
+- **README restructured** around what a reader needs first: what it is, real
+  demo output, quick start, a feature table, how it works, performance. It had
+  been a reverse-chronological list of milestones, which put the newest feature
+  where the most important one belonged.
+- **Four Mermaid diagrams**: build targets, layering, an end-to-end order flow,
+  and the component picture in the README. ASCII retained for the book's memory
+  layout, where column alignment carries meaning a flowchart would lose.
+- **An "How an order flows through" walkthrough** in the architecture document.
+  That path had been scattered across three files.
+- **A grouped index** over the now 45 design decisions, with explicit HTML
+  anchors rather than renderer-derived slugs.
+- `ARCHITECTURE.md` had opened with "Status: skeleton. Only the build-level
+  structure exists as of Milestone 1." since Milestone 1, with nine milestones of
+  components documented below it. Fixed, along with two other stale "planned"
+  markers.
+
+**Verification performed:**
+
+- **All four diagrams parsed by the real Mermaid parser**, not read over. A
+  diagram that fails to parse degrades silently to a code block on GitHub, so
+  looking right is not a check.
+- Every index link resolves to an anchor that exists, checked mechanically.
+- No dangling `DD-0XX` references anywhere in the code or documentation.
 
 ## Parked decisions
 

@@ -4,7 +4,109 @@ A running log of decisions that were genuinely contested, where a reasonable
 engineer could have chosen otherwise. Each entry states the alternatives and why
 they lost. Decisions with no real alternative are not recorded here.
 
+The order is chronological, and that is deliberate: read straight through and the
+reasoning develops, including the two places where a measurement overturned an
+earlier choice. The index below is for finding one entry; the body is for
+following the argument.
+
+## Index
+
+### Build and tooling
+
+| | Decision | |
+|---|---|---|
+| [DD-001](#dd-001) | Library + thin executable split |  |
+| [DD-002](#dd-002) | `include/` + `src/` split rather than header-only |  |
+| [DD-003](#dd-003) | C++20, not C++23 |  |
+| [DD-004](#dd-004) | GoogleTest |  |
+| [DD-005](#dd-005) | Dependencies via CMake `FetchContent`, pinned to tags |  |
+| [DD-006](#dd-006) | Warning and sanitizer policy as INTERFACE targets |  |
+| [DD-007](#dd-007) | `-Wconversion` and `-Wsign-conversion` enabled |  |
+| [DD-008](#dd-008) | Version header generated from `project()` |  |
+| [DD-039](#dd-039) | Two benchmark harnesses, because they answer two questions |  |
+| [DD-040](#dd-040) | Benchmarks are built in CI but never run there |  |
+
+### Domain types
+
+| | Decision | |
+|---|---|---|
+| [DD-009](#dd-009) | `Price` is an integer value of ticks |  |
+| [DD-010](#dd-010) | Hand-written strong types, not aliases or a generic template |  |
+| [DD-011](#dd-011) | `Order` is the inbound request only |  |
+| [DD-012](#dd-012) | Validation happens at the boundary, not in constructors |  |
+| [DD-013](#dd-013) | Stream inserters live in a separate header |  |
+| [DD-024](#dd-024) | Order type and time-in-force are fields on `Order` |  |
+
+### The order book
+
+| | Decision | |
+|---|---|---|
+| [DD-014](#dd-014) | The book is single-instrument and symbol-unaware |  |
+| [DD-015](#dd-015) | Price levels stay in a `std::map`, for now | revisited at Milestone 11 |
+| [DD-016](#dd-016) | Orders within a level are an intrusive list over a pooled vector |  |
+| [DD-017](#dd-017) | A node stores only what the matching path reads |  |
+| [DD-018](#dd-018) | The book's public interface is handle-based |  |
+
+### The matching engine
+
+| | Decision | |
+|---|---|---|
+| [DD-019](#dd-019) | Trades are delivered to a caller-supplied sink |  |
+| [DD-020](#dd-020) | A trade records the aggressor's side |  |
+| [DD-021](#dd-021) | `Trade` is an aggregate, built with designated initialisers |  |
+| [DD-022](#dd-022) | The matching loop lives in the engine, driven by small book primitives | still open |
+| [DD-023](#dd-023) | `MatchingEngine` is header-only |  |
+| [DD-025](#dd-025) | Market orders get a venue-configured protection price |  |
+| [DD-026](#dd-026) | Fill-or-kill checks feasibility before matching |  |
+| [DD-027](#dd-027) | `SubmitResult` gains a `cancelled` quantity |  |
+
+### Cancel and modify
+
+| | Decision | |
+|---|---|---|
+| [DD-028](#dd-028) | Cancel has its own result type |  |
+| [DD-029](#dd-029) | A cancel that misses reports one status |  |
+| [DD-030](#dd-030) | Modify follows the standard queue priority rule |  |
+| [DD-031](#dd-031) | The new quantity is the new remaining, not a new total | diverges from FIX |
+| [DD-032](#dd-032) | A repriced order goes back through matching |  |
+| [DD-033](#dd-033) | A modify keeps the order's id | diverges from FIX |
+
+### Events and market data
+
+| | Decision | |
+|---|---|---|
+| [DD-034](#dd-034) | An event is one flat record with a type tag |  |
+| [DD-035](#dd-035) | The event sink replaced the trade sink |  |
+| [DD-036](#dd-036) | The engine assigns sequence numbers |  |
+| [DD-037](#dd-037) | A modify publishes `Modified`, never a second `Accepted` |  |
+| [DD-038](#dd-038) | The depth snapshot writes into a caller-supplied buffer |  |
+
+### Performance
+
+| | Decision | |
+|---|---|---|
+| [DD-041](#dd-041) | A pooled allocator for the level maps: tried, measured, reverted | **reverted** — measured no improvement |
+| [DD-042](#dd-042) | Bids are stored descending, so `best_bid()` is `begin()` | **fixed a real bug** the reverted attempt exposed |
+
+### The demo
+
+| | Decision | |
+|---|---|---|
+| [DD-043](#dd-043) | Script replay and the interactive prompt are one parser |  |
+| [DD-044](#dd-044) | No arguments runs the tour, and standard input must be asked for | fixed a hang |
+| [DD-045](#dd-045) | The synthetic feed also settles DD-041 | settled DD-041 |
+
 ---
+
+
+**Two entries are worth reading even out of context.** [DD-041](#dd-041) is an
+optimisation that was built, measured, found to do nothing, and reverted.
+[DD-042](#dd-042) is the bug that negative result led to: `best_bid()` had been
+O(log L) while documented as O(1), and no amount of reasoning had found it.
+
+---
+
+<a id="dd-001"></a>
 
 ## DD-001 — Library + thin executable split
 
@@ -18,6 +120,8 @@ benchmarked. This split is what makes every later milestone possible. It also
 forces an explicit public API surface, which is the boundary the tests exercise.
 
 ---
+
+<a id="dd-002"></a>
 
 ## DD-002 — `include/` + `src/` split rather than header-only
 
@@ -38,6 +142,8 @@ missed inline.
 
 ---
 
+<a id="dd-003"></a>
+
 ## DD-003 — C++20, not C++23
 
 **Decision:** target C++20.
@@ -56,6 +162,8 @@ reviewer's machine". Where `std::expected` is wanted, a small internal
 
 ---
 
+<a id="dd-004"></a>
+
 ## DD-004 — GoogleTest
 
 **Decision:** GoogleTest v1.17.0.
@@ -70,6 +178,8 @@ an interaction test, and interaction tests want a mock.
 **Cost accepted:** slower test compiles than doctest.
 
 ---
+
+<a id="dd-005"></a>
 
 ## DD-005 — Dependencies via CMake `FetchContent`, pinned to tags
 
@@ -91,6 +201,8 @@ built.
 
 ---
 
+<a id="dd-006"></a>
+
 ## DD-006 — Warning and sanitizer policy as INTERFACE targets
 
 **Decision:** `flashpoint_warnings` and `flashpoint_sanitizers` are INTERFACE
@@ -106,6 +218,8 @@ target in the graph.
 
 ---
 
+<a id="dd-007"></a>
+
 ## DD-007 — `-Wconversion` and `-Wsign-conversion` enabled
 
 **Decision:** enable them, despite the noise.
@@ -120,6 +234,8 @@ raw integers everywhere.
 
 ---
 
+<a id="dd-008"></a>
+
 ## DD-008 — Version header generated from `project()`
 
 **Decision:** `version.hpp` is generated by `configure_file` from
@@ -132,6 +248,8 @@ out-of-line rather than `constexpr` so a caller can detect a mismatch between
 the headers they compiled against and the library they linked.
 
 ---
+
+<a id="dd-009"></a>
 
 ## DD-009 — `Price` is an integer value of ticks
 
@@ -155,6 +273,8 @@ there is no value of the representation that is inherently malformed.
 size. Formatting is the demo's job at Milestone 12.
 
 ---
+
+<a id="dd-010"></a>
 
 ## DD-010 — Hand-written strong types, not aliases or a generic template
 
@@ -189,6 +309,8 @@ Transposed calls are not merely discouraged, they do not compile.
 
 ---
 
+<a id="dd-011"></a>
+
 ## DD-011 — `Order` is the inbound request only
 
 **Decision:** `Order` is immutable and models what a client asked for. The representation the book stores for a resting order
@@ -206,6 +328,8 @@ the intended outcome, not an oversight.
 Storing arrival time per order would be eight redundant bytes on the hottest object in the system.
 
 ---
+
+<a id="dd-012"></a>
 
 ## DD-012 — Validation happens at the boundary, not in constructors
 
@@ -233,6 +357,8 @@ assertions are free; runtime validation is not.
 
 ---
 
+<a id="dd-013"></a>
+
 ## DD-013 — Stream inserters live in a separate header
 
 **Decision:** `operator<<` for the domain types is in `flashpoint/ostream.hpp`,
@@ -247,6 +373,8 @@ types.
 Without stream operators, GoogleTest prints failed comparisons as raw bytes instead of readable values.
 
 ---
+
+<a id="dd-014"></a>
 
 ## DD-014 — The book is single-instrument and symbol-unaware
 
@@ -265,6 +393,8 @@ unchanged `OrderBook` whenever it is wanted.
 **Cost accepted:** V1's demo trades one instrument.
 
 ---
+
+<a id="dd-015"></a>
 
 ## DD-015 — Price levels stay in a `std::map`, for now
 
@@ -305,6 +435,8 @@ term right now.
 
 ---
 
+<a id="dd-016"></a>
+
 ## DD-016 — Orders within a level are an intrusive list over a pooled vector
 
 **Decision:** each price level is a doubly-linked FIFO queue whose nodes live in
@@ -337,6 +469,8 @@ UBSan (Milestone 1), and that all four cases plus a differential test cover it.
 
 ---
 
+<a id="dd-017"></a>
+
 ## DD-017 — A node stores only what the matching path reads
 
 **Decision:** `Node` is `{OrderId, Quantity remaining, prev, next}` = 24 bytes.
@@ -355,6 +489,8 @@ original quantity is absent. If Milestone 9's events need the original, adding
 one field to a 24-byte struct is cheap.
 
 ---
+
+<a id="dd-018"></a>
 
 ## DD-018 — The book's public interface is handle-based
 
@@ -381,6 +517,8 @@ accessor rather than raw iteration.
 
 ---
 
+<a id="dd-019"></a>
+
 ## DD-019 — Trades are delivered to a caller-supplied sink
 
 **Decision:** `submit(order, on_trade)` is templated on the sink and invokes it
@@ -404,6 +542,8 @@ header-only. See DD-023.
 
 ---
 
+<a id="dd-020"></a>
+
 ## DD-020 — A trade records the aggressor's side
 
 **Decision:** `Trade` carries maker id, taker id, price, quantity, **and** which
@@ -422,6 +562,8 @@ event stream at Milestone 9, and adding it here would mean deciding now who owns
 the counter.
 
 ---
+
+<a id="dd-021"></a>
 
 ## DD-021 — `Trade` is an aggregate, built with designated initialisers
 
@@ -446,6 +588,8 @@ is justified by the different risk: `Order`'s fields are four distinct types, so
 positional construction is already safe there (DD-010).
 
 ---
+
+<a id="dd-022"></a>
 
 ## DD-022 — The matching loop lives in the engine, driven by small book primitives
 
@@ -480,6 +624,8 @@ test.
 
 ---
 
+<a id="dd-023"></a>
+
 ## DD-023 — `MatchingEngine` is header-only
 
 **Decision:** the whole engine lives in `matching_engine.hpp`, a deliberate
@@ -497,6 +643,8 @@ is not yet a real cost; if it becomes one, a non-template `submit` taking an
 erased sink can be added _alongside_ the template for cold callers.
 
 ---
+
+<a id="dd-024"></a>
 
 ## DD-024 — Order type and time-in-force are fields on `Order`
 
@@ -518,6 +666,8 @@ alongside the general constructor. `Order::market()` takes no price, which stops
 callers from supplying one that would be ignored.
 
 ---
+
+<a id="dd-025"></a>
 
 ## DD-025 — Market orders get a venue-configured protection price
 
@@ -565,6 +715,8 @@ price is a real number derived from a real touch.
 
 ---
 
+<a id="dd-026"></a>
+
 ## DD-026 — Fill-or-kill checks feasibility before matching
 
 **Decision:** a FillOrKill order first asks the book how much it could trade at
@@ -590,6 +742,8 @@ cheaper than discovering they do not in production.
 
 ---
 
+<a id="dd-027"></a>
+
 ## DD-027 — `SubmitResult` gains a `cancelled` quantity
 
 **Decision:** `SubmitResult` becomes `{status, filled, resting, cancelled}`, with
@@ -609,6 +763,8 @@ across market orders and all three time-in-force values.
 
 ---
 
+<a id="dd-028"></a>
+
 ## DD-028 — Cancel has its own result type
 
 **Decision:** `MatchingEngine::cancel()` returns
@@ -624,6 +780,8 @@ only had 20 left to pull, and that is the number the client needs. `cancel`
 therefore reads `remaining_of()` before removing, not the order's original size.
 
 ---
+
+<a id="dd-029"></a>
 
 ## DD-029 — A cancel that misses reports one status
 
@@ -648,6 +806,8 @@ helpful reason.
 it mirrors the structural check `submit` performs.
 
 ---
+
+<a id="dd-030"></a>
 
 ## DD-030 — Modify follows the standard queue priority rule
 
@@ -685,6 +845,8 @@ the level.
 
 ---
 
+<a id="dd-031"></a>
+
 ## DD-031 — The new quantity is the new remaining, not a new total
 
 **Decision:** `modify(id, price, quantity)` sets the resting quantity directly.
@@ -706,6 +868,8 @@ known difference rather than an oversight. Adding the original quantity to `Node
 is the change that would close it.
 
 ---
+
+<a id="dd-032"></a>
 
 ## DD-032 — A repriced order goes back through matching
 
@@ -731,6 +895,8 @@ valid. An assertion records the reasoning.
 
 ---
 
+<a id="dd-033"></a>
+
 ## DD-033 — A modify keeps the order's id
 
 **Decision:** `modify` amends in place. The order keeps the id it had, even when
@@ -748,6 +914,8 @@ A venue reporting both ids would need the mapping kept somewhere, which is the
 same order-history subsystem DD-029 pushed outside the engine.
 
 ---
+
+<a id="dd-034"></a>
 
 ## DD-034 — An event is one flat record with a type tag
 
@@ -772,6 +940,8 @@ field at the point it is set.
 
 ---
 
+<a id="dd-035"></a>
+
 ## DD-035 — The event sink replaced the trade sink
 
 **Decision:** `submit`, `modify` and `cancel` each take an event sink.
@@ -795,6 +965,8 @@ exactly the reported `filled`, and cancelled events for exactly `cancelled`.
 
 ---
 
+<a id="dd-036"></a>
+
 ## DD-036 — The engine assigns sequence numbers
 
 **Decision:** every published event carries a `SequenceNumber`, starting at 1 and
@@ -816,6 +988,8 @@ DD-010.
 
 ---
 
+<a id="dd-037"></a>
+
 ## DD-037 — A modify publishes `Modified`, never a second `Accepted`
 
 **Decision:** the matching core was split out of `submit` into a private
@@ -832,6 +1006,8 @@ Splitting `apply` out also keeps the matching rules in exactly one place, which
 is what DD-032 relied on when it routed repriced orders back through matching.
 
 ---
+
+<a id="dd-038"></a>
 
 ## DD-038 — The depth snapshot writes into a caller-supplied buffer
 
@@ -857,6 +1033,8 @@ snapshot is exactly the kind of API that would otherwise leak an iterator.
 **Cost accepted:** a slightly clunkier call site than returning a container.
 
 ---
+
+<a id="dd-039"></a>
 
 ## DD-039 — Two benchmark harnesses, because they answer two questions
 
@@ -889,6 +1067,8 @@ a reader can separate the engine from the instrument.
 
 ---
 
+<a id="dd-040"></a>
+
 ## DD-040 — Benchmarks are built in CI but never run there
 
 **Decision:** the `release` preset builds the benchmark targets, so CI compiles
@@ -913,6 +1093,8 @@ meaningful in a Release build (rule 1), so tying them to the release
 presets is also the semantically correct place.
 
 ---
+
+<a id="dd-041"></a>
 
 ## DD-041 — A pooled allocator for the level maps: tried, measured, reverted
 
@@ -948,6 +1130,8 @@ an arena the book owns, so `OrderBook` had to become move-only.
 continue, and the next thing it found was DD-042.
 
 ---
+
+<a id="dd-042"></a>
 
 ## DD-042 — Bids are stored descending, so `best_bid()` is `begin()`
 
@@ -1004,6 +1188,8 @@ recorded, so a future attempt starts from evidence rather than a hunch.
 
 ---
 
+<a id="dd-043"></a>
+
 ## DD-043 — Script replay and the interactive prompt are one parser
 
 **Decision:** the demo's command parser reads a `std::istream`. Given a file it
@@ -1026,6 +1212,8 @@ documentation of the engine's behaviour that cannot drift from the code.
 
 ---
 
+<a id="dd-044"></a>
+
 ## DD-044 — No arguments runs the tour, and standard input must be asked for
 
 **Decision:** bare `flashpoint_demo` runs the built-in tour. Reading standard
@@ -1045,6 +1233,8 @@ configure time, so the demo works from any working directory. The file on disk
 stays the single source of truth.
 
 ---
+
+<a id="dd-045"></a>
 
 ## DD-045 — The synthetic feed also settles DD-041
 
