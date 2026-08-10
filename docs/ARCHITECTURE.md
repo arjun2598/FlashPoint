@@ -27,6 +27,7 @@ FlashPoint/
 ├── src/                        Implementation translation units
 ├── tests/                      GoogleTest suite, one executable
 ├── benchmarks/                 Throughput (Google Benchmark) + latency harness
+├── demo/                       Command interpreter, book renderer, feed generator
 ├── docs/                       This directory
 └── .github/workflows/ci.yml    Build matrix + format gate
 ```
@@ -42,8 +43,8 @@ FlashPoint/
           ┌─────────────────────┼─────────────────────┐
           │                     │                     │
   ┌───────▼────────┐   ┌────────▼────────┐   ┌────────▼────────┐
-  │ flashpoint_    │   │ throughput +    │   │ demo            │
-  │ tests          │   │ latency benches │   │  (planned, M12) │
+  │ flashpoint_    │   │ throughput +    │   │ flashpoint_     │
+  │ tests          │   │ latency benches │   │ demo            │
   └────────────────┘   └─────────────────┘   └─────────────────┘
 ```
 

@@ -124,6 +124,59 @@ sets `FixNamespaceComments: true`, so every namespace must close as
 `}  // namespace flashpoint`, not a bare `}`. Running `clang-format -i` adds
 these automatically.
 
+## Running the demo
+
+Built by default, in any preset.
+
+```bash
+cmake --preset dev && cmake --build --preset dev --parallel
+```
+
+The built-in tour, which is what someone who just cloned the repository wants:
+
+```bash
+./build/dev/demo/flashpoint_demo
+```
+
+A scenario file of your own, or an interactive prompt:
+
+```bash
+./build/dev/demo/flashpoint_demo demo/scenarios/tour.txt
+```
+
+```bash
+./build/dev/demo/flashpoint_demo -i
+```
+
+Reading standard input is deliberately explicit. Guessing from `isatty()` hangs
+whenever standard input is an open pipe with nothing on it, which is what happens
+under CI and `make` (DD-044):
+
+```bash
+cat demo/scenarios/tour.txt | ./build/dev/demo/flashpoint_demo -
+```
+
+Synthetic flow at volume. Use the release build; the dev preset's sanitizers cost
+2–20×:
+
+```bash
+./build/release/demo/flashpoint_demo --generate 2000000 --seed 7
+```
+
+### Writing a scenario
+
+One command per line. `#` is a silent comment, `##` prints as a heading, which is
+how `demo/scenarios/tour.txt` narrates itself.
+
+```
+add <id> <buy|sell> <price|market> <qty> [gtc|ioc|fok]
+cancel <id>
+modify <id> <price> <qty>
+show [depth]
+help
+quit
+```
+
 ## Benchmarks
 
 Benchmarks only mean anything in a Release build, so they are off in the `dev`
@@ -173,6 +226,7 @@ defaults.
 | `FLASHPOINT_WARNINGS_AS_ERRORS` | `ON` when top-level | Add `-Werror` |
 | `FLASHPOINT_ENABLE_SANITIZERS` | `OFF` | ASan + UBSan, no recovery |
 | `FLASHPOINT_BUILD_BENCHMARKS` | `OFF`, `ON` in the release presets | Build the benchmark targets |
+| `FLASHPOINT_BUILD_DEMO` | `ON` when top-level | Build the demo |
 
 Both defaults fall to `OFF` when FlashPoint is consumed via `add_subdirectory()`,
 so a downstream project inherits neither our tests nor our warning policy.

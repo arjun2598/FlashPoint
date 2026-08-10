@@ -1001,3 +1001,78 @@ their reverse-iteration special cases and got shorter, not longer.
 tree depth: roughly four node visits against ten. No allocator or comparator
 change touches that; only a flatter structure does. Parked with the diagnosis
 recorded, so a future attempt starts from evidence rather than a hunch.
+
+---
+
+## DD-043 — Script replay and the interactive prompt are one parser
+
+**Decision:** the demo's command parser reads a `std::istream`. Given a file it
+replays a scenario; given a terminal it is an interactive prompt. There is no
+separate REPL implementation.
+
+**Why:** The parsing does not care where the lines come from, so interactivity costs a prompt
+and not exiting on a bad line.
+
+What is *not* free is a REPL that feels like a proper tool: history, arrow keys,
+tab completion. That needs `readline` or similar, and DD-005 committed to
+building with nothing else installed.
+
+**Why the script is still the primary artifact.** A scripted run produces
+deterministic output that pastes into a README; a terminal session does not.
+Most people who look at a repository read rather than run it. And a script can
+narrate itself: lines beginning `##` print as headings, so
+`demo/scenarios/tour.txt` is simultaneously the demo, a worked example, and
+documentation of the engine's behaviour that cannot drift from the code.
+
+---
+
+## DD-044 — No arguments runs the tour, and standard input must be asked for
+
+**Decision:** bare `flashpoint_demo` runs the built-in tour. Reading standard
+input requires an explicit `-`.
+
+**What the first version did, and why it was wrong.** It checked `isatty()` and
+read standard input whenever it was not a terminal. That reasoning sounds right
+but hangs forever the moment standard input is an open pipe with nothing on it,
+which is what happens under CI, `make`, and most process runners. The first run
+of the demo hung.
+
+Guessing what the user meant from the shape of a file descriptor is not worth a
+program that can hang. An explicit `-` costs only six characters.
+
+**The tour is embedded in the binary**, generated from `scenarios/tour.txt` at
+configure time, so the demo works from any working directory. The file on disk
+stays the single source of truth.
+
+---
+
+## DD-045 — The synthetic feed also settles DD-041
+
+**Decision:** the demo includes `--generate N`, which runs random flow around a
+random-walking mid and reports throughput per chunk.
+
+**Why per chunk rather than one total.** Fragmentation shows up as a trend, not a
+level. A single number for the whole run would hide a slowdown.
+
+**What it settled.** DD-041 reverted a pooled allocator because no benchmark
+could detect any benefit, and the honest reason was that every benchmark builds
+its book in one burst. The system allocator was already returning contiguous
+nodes, so there was nothing to fix. That left an open question: would a
+long-running book that churns levels for millions of orders fragment?
+
+Two million orders, with the touch drifting and roughly 30–160 levels per side
+being created and destroyed throughout:
+
+```
+        orders        ns/op      orders/sec   resting   levels(bid/ask)
+        100000        176.3         5671506       517   46/27
+        500000        168.5         5936289       426   77/35
+       1000000        173.1         5776214       390   61/48
+       2000000        176.4         5667917       269   54/32
+```
+
+Flat. No degradation across two million orders. **DD-041's revert now has
+long-running evidence behind it, not just the absence of a benchmark.**
+
+That is the second time a measurement has changed a decision in this project,
+and both times the useful result was a negative one.

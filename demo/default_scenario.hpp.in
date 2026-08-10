@@ -1,0 +1,15 @@
+// Generated from scenarios/tour.txt by CMake. Do not edit the generated copy.
+//
+// The scenario is embedded rather than loaded from disk so that the binary runs
+// correctly from any working directory. The file on disk stays the single
+// source of truth.
+
+#pragma once
+
+#include <string_view>
+
+namespace flashpoint::demo {
+
+inline constexpr std::string_view kDefaultScenario = R"SCENARIO(@FLASHPOINT_DEFAULT_SCENARIO@)SCENARIO";
+
+}  // namespace flashpoint::demo

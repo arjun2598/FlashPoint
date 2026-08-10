@@ -276,6 +276,13 @@ Reverted under rule 5. Keeping it would have meant shipping a change justified
 only by a story about a workload we do not measure, and it cost API surface:
 `OrderBook` had to become move-only. See DD-041.
 
+**Settled at Milestone 12.** The demo's synthetic feed provides the workload the
+benchmarks lacked: two million orders around a drifting mid, with 30–160 levels
+per side created and destroyed throughout. Throughput is flat across the whole
+run (176 ns/op at 100k orders, 176 ns/op at 2M), so no fragmentation develops
+even under sustained level churn. The revert stands on evidence rather than on
+the absence of a benchmark (DD-045).
+
 ### Attempt 2: bids stored descending. Shipped.
 
 Ruling out node scattering left the tree itself. Splitting `top_of_book` into its

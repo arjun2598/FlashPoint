@@ -254,6 +254,10 @@ std::size_t OrderBook::snapshot(Side side, std::span<LevelSnapshot> out) const {
     return written;
 }
 
+std::size_t OrderBook::level_count(Side side) const noexcept {
+    return side == Side::Buy ? bids_.size() : asks_.size();
+}
+
 Quantity OrderBook::quantity_available(Side aggressor_side, Price limit) const {
     Quantity total{};
 

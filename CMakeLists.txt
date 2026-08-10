@@ -20,6 +20,7 @@ option(FLASHPOINT_BUILD_TESTS "Build the FlashPoint unit tests" ${PROJECT_IS_TOP
 # docs/PERFORMANCE.md), so the release presets turn this on and the dev preset
 # leaves it off to keep the everyday configure fast.
 option(FLASHPOINT_BUILD_BENCHMARKS "Build the FlashPoint benchmarks" OFF)
+option(FLASHPOINT_BUILD_DEMO "Build the FlashPoint demo" ${PROJECT_IS_TOP_LEVEL})
 option(FLASHPOINT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ${PROJECT_IS_TOP_LEVEL})
 option(FLASHPOINT_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
@@ -84,6 +85,10 @@ if(FLASHPOINT_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
 endif()
 
+if(FLASHPOINT_BUILD_DEMO)
+    add_subdirectory(demo)
+endif()
+
 
 # Configuration summary
 message(STATUS "")
@@ -92,6 +97,7 @@ message(STATUS "  Compiler ............ ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COM
 message(STATUS "  Build type .......... ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Tests ............... ${FLASHPOINT_BUILD_TESTS}")
 message(STATUS "  Benchmarks .......... ${FLASHPOINT_BUILD_BENCHMARKS}")
+message(STATUS "  Demo ................ ${FLASHPOINT_BUILD_DEMO}")
 message(STATUS "  Warnings as errors .. ${FLASHPOINT_WARNINGS_AS_ERRORS}")
 message(STATUS "  Sanitizers .......... ${FLASHPOINT_ENABLE_SANITIZERS}")
 message(STATUS "")

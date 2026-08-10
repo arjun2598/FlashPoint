@@ -111,6 +111,56 @@ TEST(TopOfBookView, ReportsTheSpreadInTicksIncludingNegativePrices) {
 }
 
 // ---------------------------------------------------------------------------
+// Level count
+//
+// This is the L that every non-constant operation in the book scales with, so
+// it is worth being able to observe.
+// ---------------------------------------------------------------------------
+
+TEST(LevelCount, IsZeroOnAnEmptyBook) {
+    const OrderBook book;
+
+    EXPECT_EQ(book.level_count(Side::Buy), 0U);
+    EXPECT_EQ(book.level_count(Side::Sell), 0U);
+}
+
+TEST(LevelCount, CountsDistinctPricesPerSide) {
+    OrderBook book;
+    build_book(book);
+
+    // Four bid orders across three prices, four ask orders across three.
+    EXPECT_EQ(book.level_count(Side::Buy), 3U);
+    EXPECT_EQ(book.level_count(Side::Sell), 3U);
+}
+
+TEST(LevelCount, FallsWhenALevelDrainsAndNotBefore) {
+    OrderBook book;
+    ASSERT_TRUE(book.add(sell(1, 100, 10)));
+    ASSERT_TRUE(book.add(sell(2, 100, 20)));
+    ASSERT_TRUE(book.add(sell(3, 101, 30)));
+    ASSERT_EQ(book.level_count(Side::Sell), 2U);
+
+    // The level survives while another order remains at that price.
+    ASSERT_TRUE(book.remove(OrderId{1}));
+    EXPECT_EQ(book.level_count(Side::Sell), 2U);
+
+    ASSERT_TRUE(book.remove(OrderId{2}));
+    EXPECT_EQ(book.level_count(Side::Sell), 1U);
+
+    ASSERT_TRUE(book.remove(OrderId{3}));
+    EXPECT_EQ(book.level_count(Side::Sell), 0U);
+}
+
+TEST(LevelCount, AgreesWithTheNumberOfSnapshotRows) {
+    OrderBook book;
+    build_book(book);
+
+    std::array<LevelSnapshot, 16> rows{};
+    EXPECT_EQ(book.snapshot(Side::Buy, rows), book.level_count(Side::Buy));
+    EXPECT_EQ(book.snapshot(Side::Sell, rows), book.level_count(Side::Sell));
+}
+
+// ---------------------------------------------------------------------------
 // Depth snapshot
 // ---------------------------------------------------------------------------
 

@@ -9,15 +9,21 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 11 of 13 complete — the build system, CI,
+> **Status: in development.** Milestone 12 of 13 complete — the build system, CI,
 > the core domain types, the order book, matching for limit and market orders,
 > cancel, modify, the event stream, benchmarks and a measured tuning pass are
-> in place. A replay demo is next.
+> and a runnable demo are in place. Documentation polish is the last step.
 > See [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
 > now, not what is planned.
 
 ## What exists currently
 
+- **A runnable demo.** `./flashpoint_demo` replays a narrated ten-part tour that
+  builds a book, sweeps it, cancels, modifies both ways, and exercises IOC, FOK
+  and a market order — rendering an ASCII depth ladder and the engine's real
+  event stream at each step. The same parser gives an interactive prompt with
+  `-i`, and `--generate N` runs synthetic flow at volume (5.7 M operations per
+  second, sustained over two million orders).
 - **Benchmarks with real numbers, and a tuning pass driven by them.** Throughput
   via Google Benchmark, latency percentiles via a purpose-built harness, at two
   book shapes. 15.7 M add-and-cancel pairs per second; 3.1 ns to read top of
@@ -63,7 +69,7 @@ every commit.
 
 ## Planned
 
-A replay demo, then documentation polish.
+Documentation polish and architecture diagrams.
 
 ## Quick start
 

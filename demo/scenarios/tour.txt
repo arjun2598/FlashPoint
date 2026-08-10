@@ -1,0 +1,83 @@
+# The scenario the demo runs when given no arguments.
+#
+# Lines starting with a single # are silent. Lines starting with ## are printed
+# as headings, which is how this file narrates itself.
+#
+# Commands:
+#   add <id> <buy|sell> <price|market> <qty> [ioc|fok]
+#   cancel <id>
+#   modify <id> <price> <qty>
+#   show [depth]
+#   quit
+
+## 1. Building a book
+# Nothing crosses yet, so each order simply rests.
+
+add 101 sell 10250 500
+add 102 sell 10251 300
+add 103 sell 10253 800
+add 201 buy 10248 400
+add 202 buy 10247 600
+add 203 buy 10245 200
+
+show
+
+## 2. Price-time priority
+# A second order at 10250 joins behind #101, which arrived first.
+
+add 104 sell 10250 200
+show
+
+## 3. An aggressive buy sweeps two levels
+# It pays 10250 for the first 700 and 10251 for the rest. Note that #101 fills
+# before #104 even though #104 is smaller: within a price, older wins.
+
+add 301 buy 10251 900
+
+show
+
+## 4. Price improvement goes to the aggressor
+# This buyer is willing to pay 10260, but the resting ask is 10253, so it
+# trades at 10253.
+
+add 302 buy 10260 300
+show
+
+## 5. Cancelling
+# The reported quantity is what was still resting, not the original size.
+
+cancel 202
+show
+
+## 6. Modify: shrinking keeps queue position
+# #201 stays at the front of its price level.
+
+add 204 buy 10248 100
+modify 201 10248 150
+show
+
+## 7. Modify: growing loses it
+# #201 now goes behind #204.
+
+modify 201 10248 700
+show
+
+## 8. Immediate-or-cancel
+# Takes what it can and cancels the rest instead of resting.
+
+add 303 sell 10248 2000 ioc
+show
+
+## 9. Fill-or-kill that cannot fill
+# Nothing trades at all. The engine checks before it emits anything, so there
+# is no trade to undo.
+
+add 304 buy 10260 5000 fok
+show
+
+## 10. A market order, bounded by venue protection
+# It has no price of its own. The engine allows it to trade up to the
+# protection band past the touch, then cancels the remainder.
+
+add 305 buy market 1000
+show

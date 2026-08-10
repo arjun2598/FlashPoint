@@ -111,6 +111,12 @@ public:
     /// is what keeps the price-level container replaceable (DD-018).
     [[nodiscard]] std::size_t snapshot(Side side, std::span<LevelSnapshot> out) const;
 
+    /// Number of distinct price levels on one side.
+    ///
+    /// This is the L that every non-constant operation in this class scales
+    /// with, so it is worth being able to observe.
+    [[nodiscard]] std::size_t level_count(Side side) const noexcept;
+
     /// Total resting quantity an aggressor could trade against.
     ///
     /// `aggressor_side` is the side of the incoming order, so a Buy is measured

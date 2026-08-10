@@ -16,7 +16,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ✔ Complete                     |
 | 10  | Benchmarks (throughput & latency percentiles)                       | ✔ Complete                     |
 | 11  | Measured performance tuning pass                                    | ✔ Complete                     |
-| 12  | Demo application (order feed replay)                                | ⬜ Not started                 |
+| 12  | Demo application (order feed replay)                                | ✔ Complete                     |
 | 13  | Documentation polish & architecture diagrams                        | ⬜ Not started                 |
 
 ## Milestone 1 — Project setup & build system ✔
@@ -341,6 +341,40 @@ The mutation paths are unchanged, since they never read the touch.
   their reverse-iteration special cases and got shorter.
 - The remaining deep-book penalty is `map::find` tree depth, diagnosed and parked
   with the evidence in `docs/PERFORMANCE.md`.
+
+## Milestone 12 — Demo application ✔
+
+**Objective:** something a reviewer can clone and run in ten seconds that makes
+the engine visible.
+
+Delivered:
+
+- `demo/` — a command interpreter reading any `std::istream`, so script replay
+  and the interactive prompt are one piece of code (DD-043).
+- `demo/scenarios/tour.txt` — a ten-part narrated scenario that builds a book,
+  sweeps it, cancels, modifies both ways, and exercises IOC, FOK and a market
+  order. Embedded in the binary at configure time so it runs from any directory.
+- An ASCII depth ladder and an event log, printed from the engine's real event
+  stream rather than a summary invented by the demo.
+- `--generate N` — synthetic flow at volume, reporting throughput per chunk.
+- `OrderBook::level_count(Side)`, the L that everything non-constant scales with.
+
+Decisions recorded as DD-043 through DD-045.
+
+**Verification performed:**
+
+- 190/190 tests pass under ASan/UBSan.
+- The tour runs end to end and its output demonstrates each behaviour: order
+  #101 fills before #104 at the same price, a buy limited at 10260 trades at
+  10253, a shrinking modify keeps queue position while a growing one loses it, a
+  fill-or-kill that cannot fill produces no trade at all.
+- **A hang was found and fixed on the first run.** The demo guessed at reading
+  standard input from `isatty()`, which blocks forever when standard input is an
+  open pipe with nothing on it: CI, `make`, most process runners. Reading stdin
+  now requires an explicit `-` (DD-044).
+- **The generator settled DD-041.** Two million orders with levels churning
+  throughout show flat throughput (176 ns/op at both 100k and 2M), so the
+  reverted pooled allocator would not have helped a long-running book either.
 
 ## Parked decisions
 
