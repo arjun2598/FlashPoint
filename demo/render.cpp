@@ -23,14 +23,21 @@ constexpr std::size_t kMaxDepth = 20;
 
 /// Length of the longest bar. Everything is scaled against the largest quantity
 /// currently on screen, so the shape is relative, not absolute.
-constexpr std::size_t kBarWidth = 12;
+///
+/// Typed as Quantity::Rep, not std::size_t, so the arithmetic below never mixes
+/// the two. They are distinct types on macOS and the same type on Linux, so any
+/// cast between them is either required or "useless" depending on the platform,
+/// and -Wuseless-cast makes that a build error. Lining the types up avoids the
+/// question entirely.
+constexpr Quantity::Rep kBarWidth = 12;
 
 [[nodiscard]] std::string bar(Quantity quantity, Quantity largest) {
     if (largest.value() == 0) {
         return {};
     }
-    const auto scaled = static_cast<std::size_t>(
-        (quantity.value() * kBarWidth + largest.value() - 1) / largest.value());
+    // Rounded up, so any non-zero quantity draws at least one character.
+    const Quantity::Rep scaled =
+        (quantity.value() * kBarWidth + largest.value() - 1) / largest.value();
     return std::string(std::min(scaled, kBarWidth), '#');
 }
 

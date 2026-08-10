@@ -241,3 +241,30 @@ so a downstream project inherits neither our tests nor our warning policy.
   [`DESIGN_DECISIONS.md`](DESIGN_DECISIONS.md). Add an explicit cast, or better,
   fix the type.
 - **Never benchmark the `dev` preset.** Sanitizers cost 2–20×.
+- **Never cast between `std::size_t` and a `Rep` type** (`Quantity::Rep`,
+  `OrderId::Rep`, `SequenceNumber::Rep`). They are the *same* type on Linux
+  (`unsigned long`) and *different* types on macOS (`unsigned long long` vs
+  `unsigned long`). A cast between them is therefore required on macOS and a
+  `-Wuseless-cast` error on Linux, so no single spelling compiles everywhere.
+
+  Make the types line up instead. Declare the constant as the type the
+  arithmetic uses, or route through `int` when a small literal has to become
+  both. This class of error is invisible on macOS and only appears in CI.
+
+## Checking GCC before you push
+
+Clang and GCC have different warning sets, and our policy enables GCC-only
+warnings such as `-Wuseless-cast`, `-Wduplicated-cond` and `-Wlogical-op`. Those
+failures otherwise show up only in CI.
+
+```bash
+brew install gcc
+```
+
+```bash
+CC=$(brew --prefix gcc)/bin/gcc-16 CXX=$(brew --prefix gcc)/bin/g++-16 cmake -S . -B build/gcc -DCMAKE_BUILD_TYPE=Release -DFLASHPOINT_BUILD_BENCHMARKS=ON && cmake --build build/gcc --parallel && ctest --test-dir build/gcc
+```
+
+This catches most GCC-only warnings. It does **not** catch the `size_t` versus
+`Rep` trap above: Homebrew's GCC still uses Apple's headers, so the typedefs stay
+distinct. Only Linux CI sees that one.

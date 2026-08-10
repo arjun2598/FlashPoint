@@ -46,10 +46,15 @@ inline void discard(const Event&) {}
 struct BookShape {
     std::string_view name;
     Price::Rep levels;
-    Quantity::Rep orders_per_level;
+
+    // std::size_t rather than Quantity::Rep, so total_orders() needs no cast
+    // between the two. They are the same type on Linux and different on macOS,
+    // which makes any such cast a -Wuseless-cast error on one or a requirement
+    // on the other.
+    std::size_t orders_per_level;
 
     [[nodiscard]] std::size_t total_orders() const {
-        return static_cast<std::size_t>(levels) * static_cast<std::size_t>(orders_per_level);
+        return static_cast<std::size_t>(levels) * orders_per_level;
     }
 };
 
@@ -68,7 +73,7 @@ inline std::vector<OrderId> fill_side(MatchingEngine& engine, Side side, const B
 
     for (Price::Rep level = 0; level < shape.levels; ++level) {
         const Price price{side == Side::Buy ? base - level : base + level};
-        for (Quantity::Rep i = 0; i < shape.orders_per_level; ++i) {
+        for (std::size_t i = 0; i < shape.orders_per_level; ++i) {
             const OrderId id{next_id++};
             const auto result =
                 engine.submit(Order::limit(id, side, price, Quantity{100}), discard);

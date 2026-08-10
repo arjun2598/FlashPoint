@@ -196,7 +196,10 @@ LatencyStats cross_one_level(const BookShape& shape, std::size_t samples) {
 /// This is where the engine re-enters the book once per fill (DD-022), so it is
 /// the scenario most sensitive to the cost of a level lookup.
 LatencyStats sweep_many_orders(const BookShape& shape, std::size_t samples) {
-    constexpr std::size_t kOrdersConsumed = 10;
+    // int, so converting to either std::size_t or Quantity::Rep is a real cast
+    // on every platform. Declaring it as one of those two would make the
+    // conversion to the other useless on Linux, where they are the same type.
+    constexpr int kOrdersConsumed = 10;
     LatencyRecorder recorder{samples};
 
     while (recorder.size() < samples) {
@@ -205,7 +208,8 @@ LatencyStats sweep_many_orders(const BookShape& shape, std::size_t samples) {
         fill_side(engine, Side::Sell, shape, 100'000, next_id);
 
         const std::size_t budget =
-            std::min(shape.total_orders() / (2 * kOrdersConsumed), samples - recorder.size());
+            std::min(shape.total_orders() / (2 * static_cast<std::size_t>(kOrdersConsumed)),
+                     samples - recorder.size());
         for (std::size_t i = 0; i < budget; ++i) {
             const Order order =
                 Order::limit(OrderId{next_id++}, Side::Buy, Price{100'000 + shape.levels},
