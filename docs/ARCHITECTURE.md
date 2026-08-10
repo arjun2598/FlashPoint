@@ -116,9 +116,9 @@ engine's job at Milestone 5.
 **Structure.** Two layers, chosen independently and for different reasons:
 
 ```
-    bids_ : map<Price, Level>            asks_ : map<Price, Level>
-                │   both ascending, so rbegin() is the best bid
-                │   and begin() is the best ask, making each O(1)
+    bids_ : map<Price, Level, greater>   asks_ : map<Price, Level, less>
+                │   each ordered best-first, so begin() is the touch
+                │   on both sides. See DD-042: rbegin() was not O(1).
                 ▼
     Level { head, tail, total, count }
                 │   intrusive doubly-linked FIFO queue of
@@ -138,7 +138,7 @@ engine's job at Milestone 5.
 |---|---|---|
 | `add` | O(log L) | level lookup; the append itself is O(1) |
 | `remove` | O(log L) | level lookup; finding and unlinking the order is O(1) |
-| `best_bid` / `best_ask` | O(1) | `rbegin()` / `begin()` |
+| `best_bid` / `best_ask` | O(1) | `begin()` on both sides (DD-042) |
 | `quantity_at` / `order_count_at` / `front_at` | O(log L) | level lookup; aggregates are cached, so no queue walk |
 
 Every O(log L) term comes from the price-level container and nothing else. This is so that it localises the entire

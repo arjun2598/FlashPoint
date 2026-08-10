@@ -1,7 +1,8 @@
 # Performance Notes
 
-> **Status: measured.** Numbers below are from Milestone 10. Read the caveats
-> before quoting any of them.
+> **Status: measured and tuned.** Baseline numbers from Milestone 10, current
+> numbers after the Milestone 11 tuning pass. Read the caveats before quoting
+> any of them.
 
 ## Measurement rules
 
@@ -252,16 +253,97 @@ both would have produced plausible-looking but wrong results.
 Neither bug would have failed anything. They were caught by noticing that a
 figure did not move when the book shape changed, which it should have.
 
-## What Milestone 11 should target
+## Milestone 11: the tuning pass
 
-In priority order, based on the above rather than on intuition:
+Two changes were attempted. One was reverted, one shipped.
 
-1. **Replace the price-level container.** Worth roughly 1.5–1.75× on nearly
-   every operation, and the effect is measured, not assumed. The differential
-   test against the current implementation is the safety net (DD-015).
-2. **Give the sweep a level cursor** (DD-022). Worth roughly 250 ns on a
-   ten-order sweep against a deep book. Smaller and narrower than the above, and
-   only worth the API cost if the container change does not already absorb it.
-3. **Nothing else yet.** `Order` shrinking to 24 bytes and other hypotheses in
-   this document have no measurement behind them, and the two items above
-   dominate everything measured so far.
+### Attempt 1: a pooled allocator for the level maps. Reverted.
+
+The Milestone 10 data said the problem was cache, not complexity: top of book was
+1.73× slower on the deep book despite already being O(1). Giving the maps their
+nodes from a contiguous arena is the cheapest change that attacks that.
+
+It changed nothing. Every benchmark stayed within noise: `add_then_cancel`
+195 → 198 ns, `top_of_book` 7.33 → 7.37 ns, `snapshot` 73.8 → 73.9 ns.
+
+The reason is a property of the benchmark, not the engine. Each book is built in
+one burst, so a general-purpose allocator servicing a run of same-sized requests
+already returned near-contiguous nodes. There was no scattering to fix. The
+fragmentation a pool prevents happens in a book that churns levels for hours,
+which nothing here simulates.
+
+Reverted under rule 5. Keeping it would have meant shipping a change justified
+only by a story about a workload we do not measure, and it cost API surface:
+`OrderBook` had to become move-only. See DD-041.
+
+### Attempt 2: bids stored descending. Shipped.
+
+Ruling out node scattering left the tree itself. Splitting `top_of_book` into its
+two halves found it at once:
+
+| | 10 levels | 1,000 levels |
+|---|---:|---:|
+| `best_ask()` — `begin()` | 1.54 ns | 1.55 ns |
+| `best_bid()` — `rbegin()` | 4.14 ns | 7.32 ns |
+
+`std::map::begin()` is O(1) because the leftmost node is cached. Nothing caches
+the rightmost, so `rbegin()` walks the tree. **`best_bid()` was O(log L)** while
+`order_book.hpp` documented it as O(1).
+
+Fixed by ordering the bid side with `std::greater<Price>`, so both sides put the
+best price at `begin()`.
+
+### Before and after
+
+Google Benchmark, amortised mean per operation.
+
+| Benchmark | shallow before | shallow after | deep before | deep after |
+|---|---:|---:|---:|---:|
+| `best_bid` | 4.14 ns | **1.56 ns** | 7.32 ns | **1.55 ns** |
+| `best_ask` | 1.54 ns | 1.55 ns | 1.55 ns | 1.55 ns |
+| `top_of_book` | 4.23 ns | **3.11 ns** | 7.33 ns | **3.11 ns** |
+| `snapshot`, ten levels | 42.4 ns | **33.9 ns** | 73.8 ns | **30.0 ns** |
+| `add_then_cancel` | 129 ns | 131 ns | 195 ns | 204 ns |
+| `cross_one_level` | 20.2 ns | 19.7 ns | 35.4 ns | 35.8 ns |
+
+Latency p50, deep book: `snapshot` fell from 83 ns to 42 ns, and its p99.9 from
+250 ns to 84 ns.
+
+**The three read paths are now flat across book depth.** They were 1.7× worse on
+the deep book; they are now within noise of each other. The mutation paths are
+unchanged, which is correct — they never read the touch.
+
+Both sides now order best-first, so every walk over levels runs forward from
+`begin()`. `snapshot` and `quantity_available` lost their reverse-iteration
+special cases and got shorter.
+
+### What is left, and what would fix it
+
+The remaining deep-book penalty is on mutation, not reads:
+
+| Benchmark | deep / shallow |
+|---|---:|
+| `add_then_cancel` | 1.56× |
+| `cross_one_level` | 1.82× |
+
+Both are dominated by `map::find` on the level lookup path, which is roughly four node
+visits on ten levels against ten visits on a thousand. That is tree depth, and
+neither an allocator nor a comparator touches it. Only a flatter structure does.
+
+**Parked, with the diagnosis recorded**, so a future attempt starts from evidence:
+
+1. **A direct-indexed ladder** over a configured tick window, with a map fallback
+   outside it. O(1) lookup and O(1) level creation. The largest change
+   in the project, and it reopens DD-009's unbounded signed price range.
+2. **A level cursor for sweeps** (DD-022), worth roughly 250 ns on a ten-order
+   deep-book sweep. Only worth its API cost if the container change does not
+   already absorb it.
+
+A sorted vector was considered and **eliminated by measurement**. It looked
+excellent on everything Milestone 10 measured, so Milestone 11 first added the
+scenario Milestone 10 lacked: creating and destroying price levels. Level
+creation costs 83 ns and does not scale with depth at all, because a map insert
+is dominated by allocation rather than by tree size. A sorted vector would have
+to shift every element past the insertion point — an estimated 200–500 ns at a
+thousand levels. It would have fixed a 1.7× read problem by creating a 3–6×
+insertion problem, in exactly the book we are trying to improve.

@@ -95,6 +95,77 @@ LatencyStats cancel_random(const BookShape& shape, std::size_t samples) {
     return recorder.summarise();
 }
 
+/// Adding an order at a price that does not yet exist, creating a new level.
+///
+/// Milestone 10 measured no scenario that created a level: every add reused a
+/// price already in the book. That gap matters, because it is the operation the
+/// candidate replacements for the price-level container differ on most. A sorted
+/// vector looks excellent everywhere else and has to shift every element past
+/// the insertion point here.
+///
+/// The new level is a new best bid, which is the realistic case: real flow moves
+/// the touch constantly, and it is also the worst position for any structure
+/// that keeps levels contiguous.
+///
+/// The previous new level is cancelled untimed before each measurement, so the
+/// level count stays at the book shape rather than growing.
+LatencyStats add_creating_level(const BookShape& shape, std::size_t samples) {
+    MatchingEngine engine{shape.total_orders() + 16};
+    OrderId::Rep next_id = 1;
+    fill_side(engine, Side::Buy, shape, 100'000, next_id);
+
+    LatencyRecorder recorder{samples};
+    OrderId previous{};
+
+    for (std::size_t i = 0; i < samples; ++i) {
+        if (previous.is_valid()) {
+            const auto removed = engine.cancel(previous, discard);
+            do_not_optimize(removed);
+        }
+
+        // Above every existing bid, so this is always a new best level. The
+        // price varies so no slot is reused from one iteration to the next.
+        const auto offset = static_cast<Price::Rep>(i % 64);
+        const OrderId id{next_id++};
+        const Order order = Order::limit(id, Side::Buy, Price{100'001 + offset}, Quantity{100});
+
+        time_one(recorder, [&] {
+            const auto result = engine.submit(order, discard);
+            do_not_optimize(result);
+        });
+        previous = id;
+    }
+    return recorder.summarise();
+}
+
+/// Cancelling the only order at a price, destroying the level.
+///
+/// The existing cancel scenario always leaves other orders behind, so it never
+/// exercises the erase path. This one does.
+LatencyStats cancel_destroying_level(const BookShape& shape, std::size_t samples) {
+    MatchingEngine engine{shape.total_orders() + 16};
+    OrderId::Rep next_id = 1;
+    fill_side(engine, Side::Buy, shape, 100'000, next_id);
+
+    LatencyRecorder recorder{samples};
+
+    for (std::size_t i = 0; i < samples; ++i) {
+        const auto offset = static_cast<Price::Rep>(i % 64);
+        const OrderId id{next_id++};
+
+        // Untimed: create a level holding exactly this one order.
+        const auto added = engine.submit(
+            Order::limit(id, Side::Buy, Price{100'001 + offset}, Quantity{100}), discard);
+        do_not_optimize(added);
+
+        time_one(recorder, [&] {
+            const auto result = engine.cancel(id, discard);
+            do_not_optimize(result);
+        });
+    }
+    return recorder.summarise();
+}
+
 /// An aggressive order that consumes exactly one resting order.
 LatencyStats cross_one_level(const BookShape& shape, std::size_t samples) {
     LatencyRecorder recorder{samples};
@@ -280,7 +351,9 @@ int main() {
                      std::to_string(shape.total_orders()) + " resting orders)");
 
         print_row("add, non-marketable", add_non_marketable(shape, kSamples));
+        print_row("add, creating a new best level", add_creating_level(shape, kSamples));
         print_row("cancel, random resting order", cancel_random(shape, kSamples));
+        print_row("cancel, destroying a level", cancel_destroying_level(shape, kSamples));
         print_row("submit, crosses one resting order", cross_one_level(shape, kSamples));
         print_row("submit, sweeps ten resting orders", sweep_many_orders(shape, kSweepSamples));
         print_row("modify, priority retained", modify_retained(shape, kSamples));

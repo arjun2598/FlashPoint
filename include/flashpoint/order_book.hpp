@@ -46,7 +46,7 @@ struct RestingOrder {
 /// |-----------|------|
 /// | `add`     | O(log L) to find the level, O(1) to append |
 /// | `remove`  | O(1) to find the order and unlink it, O(log L) to find its level |
-/// | `best_bid` / `best_ask` | O(1) |
+/// | `best_bid` / `best_ask` | O(1) -- both are `begin()`, see DD-042 |
 /// | `quantity_at` / `order_count_at` / `front_at` | O(log L) |
 ///
 /// L is the number of distinct price levels, not the number of orders. Every
@@ -193,17 +193,34 @@ private:
         Side side{};
     };
 
-    /// Both sides use ascending order, so the best ask is `begin()` and the best
-    /// bid is `rbegin()`. Both are O(1) on a `std::map`. Using one comparator for
-    /// both sides rather than a reversed one for bids keeps the type identical
-    /// on both sides, so every helper below is written once instead of twice.
-    using Levels = std::map<Price, Level>;
+    /// Each side is ordered so that the best price is `begin()`: asks ascending,
+    /// bids descending.
+    ///
+    /// Milestone 4 used one comparator for both sides, which made `best_bid()`
+    /// `rbegin()`. That looked free, but `std::map::begin()` is O(1) only because
+    /// the implementation caches the leftmost node, and `rbegin()` has no such
+    /// cache so it walks the tree to the maximum. Milestone 10's benchmarks
+    /// measured `best_bid()` at 4.14 ns on ten levels and 7.32 ns on a thousand,
+    /// while `best_ask()` held at 1.54 ns either way. The complexity documented
+    /// above was simply wrong for the bid side (DD-042).
+    ///
+    /// The cost of fixing it is that the two sides are now different types, so a
+    /// few helpers below are written per side. The benefit beyond `best_bid` is
+    /// that every walk over levels now runs forward from `begin()` on both
+    /// sides, which removed the reverse-iteration special cases.
+    using AskLevels = std::map<Price, Level, std::less<Price>>;
+    using BidLevels = std::map<Price, Level, std::greater<Price>>;
 
-    [[nodiscard]] Levels& levels_for(Side side) noexcept;
-    [[nodiscard]] const Levels& levels_for(Side side) const noexcept;
+    /// The level for `side`/`price`, creating it if absent.
+    [[nodiscard]] Level& level_at(Side side, Price price);
 
     /// Returns the level for `side`/`price`, or nullptr when absent.
     [[nodiscard]] const Level* find_level(Side side, Price price) const;
+
+    /// Unlinks an order from its level and erases the level if it empties.
+    /// Written once as a template because the two sides are different types.
+    template <typename LevelMap>
+    void detach(LevelMap& levels, const Locator& locator, Quantity remaining);
 
     [[nodiscard]] NodeIndex acquire_node(const Order& order);
     void release_node(NodeIndex index) noexcept;
@@ -214,8 +231,8 @@ private:
     std::vector<Node> nodes_;
     NodeIndex free_head_ = kNullNode;
 
-    Levels bids_;
-    Levels asks_;
+    BidLevels bids_;
+    AskLevels asks_;
 
     std::unordered_map<OrderId, Locator> index_;
 };

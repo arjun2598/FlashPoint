@@ -101,6 +101,34 @@ void bm_read_top_of_book(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations());
 }
 
+/// Best bid alone. `bids_` is ascending, so this is `rbegin()`.
+void bm_read_best_bid(benchmark::State& state) {
+    const BookShape& shape = shape_for(static_cast<int>(state.range(0)));
+    MatchingEngine engine{shape.total_orders() * 2};
+    OrderId::Rep next_id = 1;
+    fill_side(engine, Side::Buy, shape, 100'000, next_id);
+
+    for (auto _ : state) {
+        auto best = engine.book().best_bid();
+        benchmark::DoNotOptimize(best);
+    }
+    state.SetItemsProcessed(state.iterations());
+}
+
+/// Best ask alone. `asks_` is ascending, so this is `begin()`.
+void bm_read_best_ask(benchmark::State& state) {
+    const BookShape& shape = shape_for(static_cast<int>(state.range(0)));
+    MatchingEngine engine{shape.total_orders() * 2};
+    OrderId::Rep next_id = 1;
+    fill_side(engine, Side::Sell, shape, 100'001, next_id);
+
+    for (auto _ : state) {
+        auto best = engine.book().best_ask();
+        benchmark::DoNotOptimize(best);
+    }
+    state.SetItemsProcessed(state.iterations());
+}
+
 void bm_snapshot_ten_levels(benchmark::State& state) {
     const BookShape& shape = shape_for(static_cast<int>(state.range(0)));
 
@@ -124,6 +152,8 @@ void bm_snapshot_ten_levels(benchmark::State& state) {
 BENCHMARK(bm_add_then_cancel)->Arg(0)->Arg(1);
 BENCHMARK(bm_cross_one_level)->Arg(0)->Arg(1);
 BENCHMARK(bm_read_top_of_book)->Arg(0)->Arg(1);
+BENCHMARK(bm_read_best_bid)->Arg(0)->Arg(1);
+BENCHMARK(bm_read_best_ask)->Arg(0)->Arg(1);
 BENCHMARK(bm_snapshot_ten_levels)->Arg(0)->Arg(1);
 
 }  // namespace

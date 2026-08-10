@@ -15,7 +15,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 8   | Modify / cancel-replace                                             | ✔ Complete                     |
 | 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ✔ Complete                     |
 | 10  | Benchmarks (throughput & latency percentiles)                       | ✔ Complete                     |
-| 11  | Measured performance tuning pass                                    | ⬜ Not started                 |
+| 11  | Measured performance tuning pass                                    | ✔ Complete                     |
 | 12  | Demo application (order feed replay)                                | ⬜ Not started                 |
 | 13  | Documentation polish & architecture diagrams                        | ⬜ Not started                 |
 
@@ -297,6 +297,51 @@ Decisions recorded as DD-039 and DD-040.
   anything. Both were caught by noticing a figure that did not move when the book
   shape changed, which it should have.
 
+## Milestone 11 — Measured tuning pass ✔
+
+**Objective:** close the 1.5–1.75× deep-book penalty Milestone 10 measured, using
+the measurements rather than intuition to choose what to change.
+
+**What happened, in order:**
+
+1. **Added the measurement Milestone 10 lacked.** No existing scenario created a
+   price level; every add reused an existing price. Two scenarios were added.
+   Level creation costs 83 ns and does not scale with depth.
+2. **That eliminated the sorted vector**, which had been the front-runner. It
+   would have had to shift every element past an insertion, which is an estimated
+   200–500 ns at a thousand levels. This turns a 1.7× read problem into a 3–6×
+   insertion problem.
+3. **Built a pooled allocator for the level maps. Measured no improvement at all.
+   Reverted** (DD-041). Each book is built in one burst, so the system allocator
+   already returned contiguous nodes; there was no scattering to fix.
+4. **That negative result forced the search onward**, and found the real cause:
+   `best_bid()` used `rbegin()`, which walks the tree because `std::map` caches
+   only its leftmost node. It was O(log L) while documented as O(1) (DD-042).
+5. **Fixed by ordering bids descending**, so both sides put the best price at
+   `begin()`.
+
+**Measured result:**
+
+| Benchmark | deep before | deep after | change |
+|---|---:|---:|---:|
+| `best_bid` | 7.32 ns | 1.55 ns | **4.7× faster** |
+| `top_of_book` | 7.33 ns | 3.11 ns | **2.36× faster** |
+| `snapshot`, ten levels | 73.8 ns | 30.0 ns | **2.46× faster** |
+| `add_then_cancel` | 195 ns | 204 ns | unchanged |
+| `cross_one_level` | 35.4 ns | 35.8 ns | unchanged |
+
+All three read paths are now flat across book depth; they were 1.7× worse deep.
+The mutation paths are unchanged, since they never read the touch.
+
+**Verification performed:**
+
+- 186/186 tests pass under ASan/UBSan, 185/185 in Release, with no test changes.
+  The book's behaviour is identical; only the internal ordering moved.
+- Both sides now order best-first, so `snapshot` and `quantity_available` lost
+  their reverse-iteration special cases and got shorter.
+- The remaining deep-book penalty is `map::find` tree depth, diagnosed and parked
+  with the evidence in `docs/PERFORMANCE.md`.
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
@@ -318,10 +363,14 @@ Recorded here so they are not silently defaulted:
   no caller can depend on the container, and a test enforces that.
 - **Original quantity on a resting order**: To be decided at Milestone 9. Events
   may need it; if so it is one extra field on `Node` (DD-017).
-- **Level cursor for sweeps**: To be reconsidered at Milestone 11. A sweep
-  currently performs one price lookup per fill rather than per level (DD-022).
-  Only worth doing if Milestone 10 shows those lookups dominating, and then as an
-  opaque handle rather than a leaked iterator.
+- **Level cursor for sweeps**: Still open after Milestone 11. Worth roughly
+  250 ns on a ten-order deep-book sweep (DD-022). Only worth its API cost if a
+  flatter price-level container does not already absorb it.
+- **Flatter price-level container**: Still open after Milestone 11, now with a
+  diagnosis. The remaining deep-book penalty is `map::find` tree depth on the
+  mutation paths, which no allocator or comparator change touches. A
+  direct-indexed ladder over a configured tick window would fix it, at the cost
+  of the largest piece of new code in the project and reopening DD-009.
 - **Self-trade prevention**: Out of scope for V1. Real venues match on a
   participant id and suppress self-crosses; adding it means putting a client id
   on `Order`, which the demo would not exercise.

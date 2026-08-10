@@ -7,7 +7,6 @@
 #include <utility>
 
 namespace flashpoint {
-
 OrderBook::OrderBook(std::size_t expected_orders) {
     nodes_.reserve(expected_orders);
     index_.reserve(expected_orders);
@@ -90,18 +89,41 @@ void OrderBook::unlink(Level& level, NodeIndex index) noexcept {
 // Level lookup
 // ---------------------------------------------------------------------------
 
-OrderBook::Levels& OrderBook::levels_for(Side side) noexcept {
-    return side == Side::Buy ? bids_ : asks_;
-}
-
-const OrderBook::Levels& OrderBook::levels_for(Side side) const noexcept {
-    return side == Side::Buy ? bids_ : asks_;
+OrderBook::Level& OrderBook::level_at(Side side, Price price) {
+    // operator[] creates the level if it is absent, which is what add() wants.
+    return side == Side::Buy ? bids_[price] : asks_[price];
 }
 
 const OrderBook::Level* OrderBook::find_level(Side side, Price price) const {
-    const Levels& levels = levels_for(side);
-    const auto it = levels.find(price);
-    return it == levels.end() ? nullptr : &it->second;
+    if (side == Side::Buy) {
+        const auto it = bids_.find(price);
+        return it == bids_.end() ? nullptr : &it->second;
+    }
+    const auto it = asks_.find(price);
+    return it == asks_.end() ? nullptr : &it->second;
+}
+
+// Written once as a template because the two sides are now different types.
+// Erasing by iterator rather than by key avoids a second lookup.
+template <typename LevelMap>
+void OrderBook::detach(LevelMap& levels, const Locator& locator, Quantity remaining) {
+    const auto level_it = levels.find(locator.price);
+    assert(level_it != levels.end() && "index referenced a level that does not exist");
+    Level& level = level_it->second;
+
+    unlink(level, locator.node);
+    release_node(locator.node);
+
+    level.total -= remaining;
+    --level.count;
+
+    // Empty levels are erased rather than retained. Keeping them would make
+    // best_bid() report a price with no depth behind it, which is wrong.
+    if (level.count == 0) {
+        assert(level.head == kNullNode && level.tail == kNullNode &&
+               "level order count reached zero with a non-empty queue");
+        levels.erase(level_it);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +140,7 @@ bool OrderBook::add(const Order& order) {
     // Held by reference across acquire_node(): map elements are address-stable,
     // so growing the node pool cannot invalidate this. The node pool is
     // addressed by index precisely because it is not address-stable.
-    Level& level = levels_for(order.side())[order.price()];
+    Level& level = level_at(order.side(), order.price());
 
     const NodeIndex index = acquire_node(order);
     link_back(level, index);
@@ -137,32 +159,18 @@ bool OrderBook::remove(OrderId id) {
 
     const Locator locator = entry->second;
 
-    Levels& levels = levels_for(locator.side);
-    const auto level_it = levels.find(locator.price);
-    assert(level_it != levels.end() && "index referenced a level that does not exist");
-    Level& level = level_it->second;
-
     // Read the quantity before releasing the node: release_node overwrites the
     // node's links, and reading a released slot would be a latent bug the moment
     // the field layout changes.
     const Quantity remaining = nodes_[locator.node].remaining;
 
-    unlink(level, locator.node);
-    release_node(locator.node);
-
-    level.total -= remaining;
-    --level.count;
-
-    index_.erase(entry);
-
-    // Empty levels are erased rather than retained. Keeping them would make
-    // best_bid() report a price with no depth behind it.
-    if (level.count == 0) {
-        assert(level.head == kNullNode && level.tail == kNullNode &&
-               "level order count reached zero with a non-empty queue");
-        levels.erase(level_it);
+    if (locator.side == Side::Buy) {
+        detach(bids_, locator, remaining);
+    } else {
+        detach(asks_, locator, remaining);
     }
 
+    index_.erase(entry);
     return true;
 }
 
@@ -174,8 +182,10 @@ std::optional<Price> OrderBook::best_bid() const noexcept {
     if (bids_.empty()) {
         return std::nullopt;
     }
-    // Highest bid is the last element.
-    return bids_.rbegin()->first;
+    // Bids are stored descending, so the highest is the first element. This is
+    // O(1). rbegin() was not: std::map caches its leftmost node but not its
+    // rightmost, so rbegin() walks the tree (DD-042).
+    return bids_.begin()->first;
 }
 
 std::optional<Price> OrderBook::best_ask() const noexcept {
@@ -208,7 +218,7 @@ TopOfBook OrderBook::top_of_book() const {
     TopOfBook top;
 
     if (!bids_.empty()) {
-        const auto& [price, level] = *bids_.rbegin();
+        const auto& [price, level] = *bids_.begin();
         top.bid_price = price;
         top.bid_quantity = level.total;
     }
@@ -224,28 +234,32 @@ TopOfBook OrderBook::top_of_book() const {
 std::size_t OrderBook::snapshot(Side side, std::span<LevelSnapshot> out) const {
     std::size_t written = 0;
 
-    if (side == Side::Buy) {
-        // Bids are stored ascending, so walk backwards to get the best first.
-        for (auto it = bids_.rbegin(); it != bids_.rend() && written < out.size(); ++it) {
-            out[written] = LevelSnapshot{it->first, it->second.total, it->second.count};
+    // Both sides order the best price first, so this walks forward either way.
+    // Before DD-042 the bid side had to iterate in reverse.
+    const auto collect = [&out, &written](const auto& levels) {
+        for (const auto& [price, level] : levels) {
+            if (written >= out.size()) {
+                break;
+            }
+            out[written] = LevelSnapshot{price, level.total, level.count};
             ++written;
         }
-    } else {
-        for (auto it = asks_.begin(); it != asks_.end() && written < out.size(); ++it) {
-            out[written] = LevelSnapshot{it->first, it->second.total, it->second.count};
-            ++written;
-        }
-    }
+    };
 
+    if (side == Side::Buy) {
+        collect(bids_);
+    } else {
+        collect(asks_);
+    }
     return written;
 }
 
 Quantity OrderBook::quantity_available(Side aggressor_side, Price limit) const {
     Quantity total{};
 
+    // Each side is ordered best-first, so both loops walk forward and stop at
+    // the first level the aggressor cannot reach.
     if (aggressor_side == Side::Buy) {
-        // Asks are stored ascending, so walking forward visits the cheapest
-        // first. Stop at the first level above the limit.
         for (const auto& [price, level] : asks_) {
             if (price > limit) {
                 break;
@@ -253,12 +267,11 @@ Quantity OrderBook::quantity_available(Side aggressor_side, Price limit) const {
             total += level.total;
         }
     } else {
-        // Bids are also ascending, so walk backwards to visit the highest first.
-        for (auto it = bids_.rbegin(); it != bids_.rend(); ++it) {
-            if (it->first < limit) {
+        for (const auto& [price, level] : bids_) {
+            if (price < limit) {
                 break;
             }
-            total += it->second.total;
+            total += level.total;
         }
     }
 
@@ -299,10 +312,16 @@ bool OrderBook::reduce(OrderId id, Quantity by) {
 
     node.remaining -= by;
 
-    Levels& levels = levels_for(locator.side);
-    const auto level_it = levels.find(locator.price);
-    assert(level_it != levels.end() && "index referenced a level that does not exist");
-    level_it->second.total -= by;
+    // The cached aggregate has to follow the order's quantity down.
+    if (locator.side == Side::Buy) {
+        const auto level_it = bids_.find(locator.price);
+        assert(level_it != bids_.end() && "index referenced a level that does not exist");
+        level_it->second.total -= by;
+    } else {
+        const auto level_it = asks_.find(locator.price);
+        assert(level_it != asks_.end() && "index referenced a level that does not exist");
+        level_it->second.total -= by;
+    }
 
     return true;
 }

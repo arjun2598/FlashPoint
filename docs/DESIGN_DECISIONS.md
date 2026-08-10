@@ -911,3 +911,93 @@ inventing a number from a shared runner would be worse than having none.
 configure stays fast and does not fetch Google Benchmark. They are only
 meaningful in a Release build (rule 1), so tying them to the release
 presets is also the semantically correct place.
+
+---
+
+## DD-041 — A pooled allocator for the level maps: tried, measured, reverted
+
+**Decision:** not adopted. Recorded because the negative result is the useful
+part.
+
+**The reasoning that motivated it.** Milestone 10 measured every book operation
+costing 1.5–1.75× more on a book with 100× the price levels but the same number
+of orders. Reading top of book was 1.73× slower despite already being O(1),
+which no algorithm can explain. That pointed at cache locality: a tree walk
+chasing pointers into nodes scattered across the heap. Giving the maps their
+nodes from a contiguous arena is the cheapest change that attacks that, with no
+API change and no conflict with `Price` being unbounded.
+
+**What it measured.** Nothing. Every benchmark landed within noise of the
+baseline: `add_then_cancel` 195 → 198 ns, `top_of_book` 7.33 → 7.37 ns,
+`snapshot` 73.8 → 73.9 ns.
+
+**Why it did nothing.** The benchmark builds each book in one burst, inserting
+every level in sequence. A general-purpose allocator servicing a run of
+same-sized requests already returns near-contiguous memory, so the nodes were
+never scattered and there was nothing for a pool to fix. The scattering a pool
+prevents happens in a book that churns levels for hours, which no benchmark here
+simulates.
+
+**Why it was reverted rather than kept.** Rule 5 in `docs/PERFORMANCE.md` says
+no optimisation is committed without a before/after measurement. Keeping it would
+have meant shipping a change justified only by a plausible story about a workload
+we do not measure. It also cost real API surface: the maps' allocators point at
+an arena the book owns, so `OrderBook` had to become move-only.
+
+**What it did buy.** Ruling out node scattering is what forced the search to
+continue, and the next thing it found was DD-042.
+
+---
+
+## DD-042 — Bids are stored descending, so `best_bid()` is `begin()`
+
+**Decision:** the bid side uses `std::greater<Price>`. Both sides now put the
+best price at `begin()`.
+
+**What was wrong.** Milestone 4 used one comparator for both sides so the two
+maps would be the same type and every helper could be written once. That made
+`best_ask()` `begin()` and `best_bid()` `rbegin()`, documented as O(1) each.
+
+`begin()` is O(1) because `std::map` caches its leftmost node. There is no
+corresponding cache for the rightmost, so `rbegin()` walks the tree to find the
+maximum. **`best_bid()` was O(log L)**, and the complexity table in
+`order_book.hpp` said otherwise.
+
+**How it was found.** After DD-041 ruled out node scattering, the remaining
+suspect was the tree itself. Splitting `top_of_book` into its two halves settled
+it immediately:
+
+| | 10 levels | 1,000 levels |
+|---|---:|---:|
+| `best_ask()` — `begin()` | 1.54 ns | 1.55 ns |
+| `best_bid()` — `rbegin()` | 4.14 ns | 7.32 ns |
+
+One scales, the other does not. That is not a cache effect.
+
+**Measured result:**
+
+| Benchmark | before (deep) | after (deep) | change |
+|---|---:|---:|---:|
+| `best_bid` | 7.32 ns | 1.55 ns | **4.7× faster** |
+| `top_of_book` | 7.33 ns | 3.11 ns | **2.36× faster** |
+| `snapshot`, ten levels | 73.8 ns | 30.0 ns | **2.46× faster** |
+| `add_then_cancel` | 195 ns | 204 ns | unchanged |
+| `cross_one_level` | 35.4 ns | 35.8 ns | unchanged |
+
+The three read paths are now **flat across book depth**; they were 1.7× worse on
+the deep book before. The mutation paths are untouched, which is exactly right:
+they do not read the touch, and their cost is `map::find`.
+
+**Cost accepted.** The two sides are different types now, so `levels_for()` is
+gone and a few helpers are written per side or as a template. That was the
+simplification Milestone 4 bought with the shared comparator, and it turned out
+to be paid for with a hidden O(log L).
+
+**Unexpected benefit.** Both sides now order best-first, so every walk over
+levels runs forward from `begin()`. `snapshot` and `quantity_available` lost
+their reverse-iteration special cases and got shorter, not longer.
+
+**What this leaves.** The remaining deep-book penalty on mutations is `map::find`
+tree depth: roughly four node visits against ten. No allocator or comparator
+change touches that; only a flatter structure does. Parked with the diagnosis
+recorded, so a future attempt starts from evidence rather than a hunch.

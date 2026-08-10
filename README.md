@@ -9,19 +9,23 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 10 of 13 complete — the build system, CI,
+> **Status: in development.** Milestone 11 of 13 complete — the build system, CI,
 > the core domain types, the order book, matching for limit and market orders,
-> cancel, modify, the event stream and benchmarks are in place. A measured
-> tuning pass is next.
+> cancel, modify, the event stream, benchmarks and a measured tuning pass are
+> in place. A replay demo is next.
 > See [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
 > now, not what is planned.
 
 ## What exists currently
 
-- **Benchmarks with real numbers.** Throughput via Google Benchmark, latency
-  percentiles via a purpose-built harness, at two book shapes. 15.5 M
-  add-and-cancel pairs per second; 4.2 ns to read top of book. Results and their
-  caveats are in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+- **Benchmarks with real numbers, and a tuning pass driven by them.** Throughput
+  via Google Benchmark, latency percentiles via a purpose-built harness, at two
+  book shapes. 15.7 M add-and-cancel pairs per second; 3.1 ns to read top of
+  book, flat across book depth. The tuning pass found `best_bid()` was O(log L)
+  while documented as O(1), and fixing it made the read paths 2.4–4.7× faster on
+  a deep book. A pooled allocator was also tried, measured no improvement, and
+  reverted. Both results are written up in
+  [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 - **Event stream and market data.** Every operation publishes an ordered,
   sequence-numbered stream of what it did: acknowledgements, executions,
   rejections, cancellations and amendments. Events are one flat trivially
@@ -59,7 +63,7 @@ every commit.
 
 ## Planned
 
-A measured performance tuning pass and a replay demo.
+A replay demo, then documentation polish.
 
 ## Quick start
 
