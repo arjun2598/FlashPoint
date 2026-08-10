@@ -19,6 +19,8 @@ FlashPoint/
 │   ├── order.hpp               Order — the inbound request
 │   ├── order_book.hpp          OrderBook — price-time priority container
 │   ├── trade.hpp               Trade — one execution
+│   ├── event.hpp               Event — the engine's output stream
+│   ├── market_data.hpp         TopOfBook, LevelSnapshot
 │   ├── matching_engine.hpp     MatchingEngine — header-only (templated sink)
 │   ├── ostream.hpp             Stream inserters; NOT included by the library
 │   └── version.hpp.in          Generated into the build tree by CMake
@@ -293,4 +295,49 @@ Supporting this, `OrderBook` gained `resting_order(OrderId)`, which returns a
 `RestingOrder` snapshot — side, price and remaining quantity by value. It is a
 copy, not a view, so it fits the handle-based contract (DD-018).
 
-- **Event stream**: pending Milestone 9.
+### Event stream and market data (Milestone 9)
+
+Every mutating engine call takes an event sink and publishes what it did, in
+order. The result types (`SubmitResult`, `CancelResult`, `ModifyResult`) remain
+as summaries of the same information.
+
+**What each operation publishes:**
+
+| Operation | Events, in order |
+|---|---|
+| order that rests untouched | `Accepted` |
+| order that trades | `Accepted`, then one `Trade` per execution |
+| IOC or market with a remainder | `Accepted`, trades, `Cancelled` |
+| FOK that cannot fill | `Accepted`, `Cancelled` — no trades at all |
+| anything malformed | `Rejected` alone |
+| `cancel` | `Cancelled`, or `Rejected` |
+| `modify` | `Modified`, then trades if the reprice crossed |
+
+**A modify never publishes a second `Accepted`.** Internally, a modify that loses
+priority removes the order and re-adds it, which is a submit. The matching core
+was split into a private `apply()` so `submit` and `modify` can each publish
+their own acknowledgement and share everything after it. A consumer
+reconstructing order state from the stream would otherwise count the order twice
+(DD-037).
+
+**`Event` is one flat record** with an `EventType` tag rather than a variant of
+five shapes. It is trivially copyable and fixed size, so the stream can be
+written to a file and read back with no encoding step. `event.hpp` documents which
+fields each type populates.
+
+**Sequence numbers** start at 1 and increase by one per event, including for
+rejections. That is what lets a consumer detect a gap. Scope is one engine, so
+one instrument.
+
+**Market data** comes from two book methods:
+
+- `top_of_book()` returns best price and quantity on each side, plus the spread
+  in ticks.
+- `snapshot(Side, std::span<LevelSnapshot>)` fills a caller-supplied buffer with
+  the best price levels, best first, and returns how many it wrote. Orders at one
+  price aggregate into a single row with a count, which is what makes it level 2
+  rather than level 3.
+
+The caller owning the buffer means a publisher reuses one array across thousands
+of snapshots without allocating, and sizing the span is how it chooses the depth
+(DD-038).

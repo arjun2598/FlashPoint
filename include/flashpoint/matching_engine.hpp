@@ -1,13 +1,15 @@
 // The matching engine.
 //
-// Header-only. `submit` is templated on the trade sink so delivering a trade is
-// a direct call the compiler can inline, with no allocation and no indirect
-// dispatch. That is a considered exception to DD-002, which puts orchestration
-// in a translation unit: a template cannot live anywhere else, and this is the
-// hottest code in the project.
+// Header-only. Every mutating call is templated on the event sink, so
+// publishing an event is a direct call the compiler can inline, with no
+// allocation and no indirect dispatch. That is a considered exception to DD-002,
+// which puts orchestration in a translation unit: a template cannot live
+// anywhere else, and this is the hottest code in the project.
 
 #pragma once
 
+#include "flashpoint/event.hpp"
+#include "flashpoint/market_data.hpp"
 #include "flashpoint/order.hpp"
 #include "flashpoint/order_book.hpp"
 #include "flashpoint/trade.hpp"
@@ -51,12 +53,11 @@ enum class SubmitStatus : std::uint8_t {
 /// What happened to a submitted order.
 ///
 /// For an accepted order, `filled + resting + cancelled` equals the submitted
-/// quantity. All three are zero for a rejected one. The tests check that
-/// identity on every submission, which catches quantity being invented or lost.
+/// quantity. All three are zero for a rejected one.
 ///
-/// `status` says whether the order was accepted. The three quantities say what
-/// became of it. Keeping those separate stops the status list from growing a
-/// case for every combination as later milestones add order handling.
+/// This is a summary of what the event stream already said. It exists because
+/// callers usually want the outcome without reading events, but the stream is
+/// the authority.
 struct SubmitResult {
     SubmitStatus status{SubmitStatus::Accepted};
 
@@ -85,15 +86,13 @@ enum class CancelStatus : std::uint8_t {
 
     /// No order with that id is resting.
     ///
-    /// This covers three cases the engine cannot tell apart: the id never
-    /// existed, the order already filled completely, or it was already
-    /// cancelled. Distinguishing them means keeping a record of every id ever
-    /// seen, which is an order-history subsystem rather than a matching engine
-    /// concern (DD-029).
+    /// Covers three cases the engine cannot tell apart: the id never existed,
+    /// the order already filled, or it was already cancelled. Distinguishing
+    /// them needs an order-history subsystem rather than a matching engine
+    /// (DD-029).
     UnknownOrder,
 
-    /// The id itself is malformed. `OrderId::kNone` is the reserved "no order"
-    /// value, so a cancel naming it can never refer to anything.
+    /// The id was `OrderId::kNone`, the reserved "no order" value.
     RejectedInvalidId,
 };
 
@@ -113,11 +112,9 @@ enum class CancelStatus : std::uint8_t {
 struct CancelResult {
     CancelStatus status{CancelStatus::UnknownOrder};
 
-    /// Quantity that was still resting when the cancel took effect, and is now
-    /// gone. This is the *remaining* quantity, not the order's original size: an
-    /// order that filled 30 of 50 before being cancelled reports 20.
-    ///
-    /// Zero unless `status` is Cancelled.
+    /// Quantity that was still resting when the cancel took effect. This is the
+    /// remaining quantity, not the original size: an order that filled 30 of 50
+    /// before being cancelled reports 20.
     Quantity cancelled{};
 
     [[nodiscard]] constexpr bool succeeded() const noexcept {
@@ -127,35 +124,15 @@ struct CancelResult {
     friend constexpr bool operator==(const CancelResult&, const CancelResult&) noexcept = default;
 };
 
-/// Whether a modified order kept its place in the queue at its price level.
-enum class QueuePriority : std::uint8_t {
-    /// The order stayed where it was.
-    Retained,
-
-    /// The order went to the back of the queue at its price.
-    Lost,
-};
-
-[[nodiscard]] constexpr std::string_view to_string(QueuePriority priority) noexcept {
-    switch (priority) {
-        case QueuePriority::Retained:
-            return "Retained";
-        case QueuePriority::Lost:
-            return "Lost";
-    }
-    return "Unknown";
-}
-
 /// Outcome of a modify request.
 enum class ModifyStatus : std::uint8_t {
     /// The change was applied. `ModifyResult` says what became of the order.
     Modified,
 
-    /// No order with that id is resting. Same limitation as cancel: the engine
-    /// cannot tell "never existed" from "already filled" (DD-029).
+    /// No order with that id is resting. Same limitation as cancel (DD-029).
     UnknownOrder,
 
-    /// The id was `OrderId::kNone`, the reserved "no order" value.
+    /// The id was `OrderId::kNone`.
     RejectedInvalidId,
 
     /// The requested quantity was zero. Removing an order is `cancel`.
@@ -209,7 +186,8 @@ struct EngineConfig {
     /// limit of 105. Anything it cannot fill by then is cancelled.
     ///
     /// This is what makes a market order safe to send: without it, a thin book
-    /// would let one sweep to an arbitrary price. CME calls it market-with-protection.
+    /// would let one sweep to an arbitrary price. CME calls it
+    /// market-with-protection.
     Price::Rep market_protection_ticks = 10;
 };
 
@@ -220,6 +198,10 @@ struct EngineConfig {
 /// trade, and only then does the remainder rest. That is why `OrderBook` has no
 /// crossing check of its own. A container cannot resolve a cross, because
 /// resolving one means producing a trade.
+///
+/// Every mutating call takes an event sink and publishes what it did, in order,
+/// with sequence numbers starting at 1. The returned result types are summaries
+/// of the same information for callers that do not want to read the stream.
 class MatchingEngine {
 public:
     MatchingEngine() = default;
@@ -238,20 +220,199 @@ public:
 
     /// Submits an order.
     ///
-    /// `on_trade` is called once per execution, in the order the executions
-    /// happen, with a `const Trade&`. An order that does not trade never calls
-    /// it. That tends to be the common case in real flow, and it costs nothing.
-    template <typename TradeSink>
-    [[nodiscard]] SubmitResult submit(const Order& order, TradeSink&& on_trade) {
+    /// Publishes, in this order: `Accepted` (or `Rejected`), then one `Trade`
+    /// per execution, then `Cancelled` if any quantity could neither trade nor
+    /// rest. An order that rests untouched produces one event.
+    template <typename EventSink>
+    [[nodiscard]] SubmitResult submit(const Order& order, EventSink&& on_event) {
         // The one place structural validity is checked. Everything downstream,
         // including OrderBook::add, may assume what reaches it is well formed.
         if (!order.is_valid()) {
-            return rejected(SubmitStatus::RejectedInvalid);
+            emit_reject(on_event, order.id(), RejectReason::MalformedOrder);
+            return SubmitResult{SubmitStatus::RejectedInvalid, Quantity{}, Quantity{}, Quantity{}};
         }
         if (book_.contains(order.id())) {
-            return rejected(SubmitStatus::RejectedDuplicateId);
+            emit_reject(on_event, order.id(), RejectReason::DuplicateOrderId);
+            return SubmitResult{SubmitStatus::RejectedDuplicateId, Quantity{}, Quantity{},
+                                Quantity{}};
         }
 
+        emit(on_event, Event{.order_id = order.id(),
+                             .price = quoted_price(order),
+                             .quantity = order.quantity(),
+                             .side = order.side(),
+                             .type = EventType::Accepted});
+
+        return apply(order, on_event);
+    }
+
+    /// Changes the price and/or remaining quantity of a resting order.
+    ///
+    /// `new_quantity` is the new *remaining* quantity, not a new total order
+    /// size (DD-031). Queue priority follows the usual venue rule:
+    ///
+    /// | Change | Priority |
+    /// |---|---|
+    /// | quantity reduced, same price | retained |
+    /// | quantity unchanged, same price | retained |
+    /// | quantity increased | lost |
+    /// | price changed | lost |
+    ///
+    /// Shrinking an order takes nothing from the orders behind it, so there is
+    /// no reason to move it back. Growing it does, so it goes to the back.
+    ///
+    /// A modify that reprices an order across the spread trades, exactly as a
+    /// fresh order at that price would. The order keeps its id throughout.
+    ///
+    /// Publishes `Modified` (or `Rejected`), then one `Trade` per execution.
+    template <typename EventSink>
+    [[nodiscard]] ModifyResult modify(OrderId id, Price new_price, Quantity new_quantity,
+                                      EventSink&& on_event) {
+        if (!id.is_valid()) {
+            emit_reject(on_event, id, RejectReason::InvalidOrderId);
+            return ModifyResult{ModifyStatus::RejectedInvalidId, Quantity{}, Quantity{},
+                                QueuePriority::Lost};
+        }
+        if (!new_quantity.is_valid()) {
+            // Modifying to zero would mean deleting the order, which is cancel's
+            // job. Rejecting keeps the two operations distinct.
+            emit_reject(on_event, id, RejectReason::InvalidQuantity);
+            return ModifyResult{ModifyStatus::RejectedInvalidQuantity, Quantity{}, Quantity{},
+                                QueuePriority::Lost};
+        }
+
+        const std::optional<RestingOrder> existing = book_.resting_order(id);
+        if (!existing.has_value()) {
+            emit_reject(on_event, id, RejectReason::UnknownOrder);
+            return ModifyResult{ModifyStatus::UnknownOrder, Quantity{}, Quantity{},
+                                QueuePriority::Lost};
+        }
+
+        const bool price_changed = new_price != existing->price;
+        const bool quantity_increased = new_quantity > existing->remaining;
+
+        if (!price_changed && !quantity_increased) {
+            // Same price, and not larger. The order stays exactly where it is.
+            if (new_quantity < existing->remaining) {
+                [[maybe_unused]] const bool reduced =
+                    book_.reduce(id, existing->remaining - new_quantity);
+                assert(reduced);
+            }
+            emit(on_event, Event{.order_id = id,
+                                 .price = existing->price,
+                                 .quantity = new_quantity,
+                                 .side = existing->side,
+                                 .type = EventType::Modified,
+                                 .priority = QueuePriority::Retained});
+            return ModifyResult{ModifyStatus::Modified, Quantity{}, new_quantity,
+                                QueuePriority::Retained};
+        }
+
+        // Priority is lost, so the order leaves and comes back as a new arrival.
+        // Routing it through apply() rather than straight back into the book is
+        // what makes a repriced order trade when it now crosses. apply() is used
+        // instead of submit() so the stream carries Modified rather than a
+        // second Accepted for an order the client never resubmitted.
+        [[maybe_unused]] const bool removed = book_.remove(id);
+        assert(removed && "resting_order found it but remove did not");
+
+        emit(on_event, Event{.order_id = id,
+                             .price = new_price,
+                             .quantity = new_quantity,
+                             .side = existing->side,
+                             .type = EventType::Modified,
+                             .priority = QueuePriority::Lost});
+
+        const SubmitResult result =
+            apply(Order::limit(id, existing->side, new_price, new_quantity), on_event);
+        assert(result.cancelled == Quantity{} &&
+               "a GoodTillCancel limit order cannot be cancelled");
+
+        return ModifyResult{ModifyStatus::Modified, result.filled, result.resting,
+                            QueuePriority::Lost};
+    }
+
+    /// Cancels a resting order.
+    ///
+    /// Returns the quantity that was still resting, which is what the client
+    /// actually pulled. An order that partially filled first reports only the
+    /// part that was left.
+    ///
+    /// Publishes `Cancelled`, or `Rejected` if the cancel missed.
+    ///
+    /// There is no owner check. Anyone may cancel any order, because `Order`
+    /// carries no participant id. That is the same gap as self-trade prevention
+    /// and is parked for the same reason.
+    template <typename EventSink>
+    [[nodiscard]] CancelResult cancel(OrderId id, EventSink&& on_event) {
+        if (!id.is_valid()) {
+            emit_reject(on_event, id, RejectReason::InvalidOrderId);
+            return CancelResult{CancelStatus::RejectedInvalidId, Quantity{}};
+        }
+
+        // Read the order before removing it, since it is gone afterwards and the
+        // event needs its price and side.
+        const std::optional<RestingOrder> existing = book_.resting_order(id);
+        if (!existing.has_value()) {
+            emit_reject(on_event, id, RejectReason::UnknownOrder);
+            return CancelResult{CancelStatus::UnknownOrder, Quantity{}};
+        }
+
+        [[maybe_unused]] const bool removed = book_.remove(id);
+        assert(removed && "resting_order found the order but remove did not");
+
+        emit(on_event, Event{.order_id = id,
+                             .price = existing->price,
+                             .quantity = existing->remaining,
+                             .side = existing->side,
+                             .type = EventType::Cancelled});
+
+        return CancelResult{CancelStatus::Cancelled, existing->remaining};
+    }
+
+    /// Read-only view of the book. Its own interface is handle-based (DD-018),
+    /// so a const reference exposes nothing a caller could depend on.
+    [[nodiscard]] const OrderBook& book() const noexcept {
+        return book_;
+    }
+
+    [[nodiscard]] const EngineConfig& config() const noexcept {
+        return config_;
+    }
+
+    /// The sequence number of the last event published. Zero before any.
+    [[nodiscard]] SequenceNumber last_sequence() const noexcept {
+        return last_sequence_;
+    }
+
+private:
+    /// Stamps the next sequence number on an event and publishes it.
+    template <typename EventSink>
+    void emit(EventSink& on_event, Event event) {
+        last_sequence_ = last_sequence_.next();
+        event.sequence = last_sequence_;
+        on_event(static_cast<const Event&>(event));
+    }
+
+    template <typename EventSink>
+    void emit_reject(EventSink& on_event, OrderId id, RejectReason reason) {
+        emit(on_event, Event{.order_id = id, .type = EventType::Rejected, .reason = reason});
+    }
+
+    /// A market order has no price of its own, so its events carry zero rather
+    /// than a value the client never specified.
+    [[nodiscard]] static constexpr Price quoted_price(const Order& order) noexcept {
+        return order.type() == OrderType::Limit ? order.price() : Price{};
+    }
+
+    /// Matches an already-validated order and disposes of the remainder.
+    ///
+    /// Publishes trades, and a `Cancelled` event for any quantity that could
+    /// neither trade nor rest. Does not publish an acknowledgement: the caller
+    /// has already said whether this was an `Accepted` order or a `Modified`
+    /// one.
+    template <typename EventSink>
+    SubmitResult apply(const Order& order, EventSink& on_event) {
         // A limit order uses its own price. A market order uses a protection
         // price derived from the opposite touch. Resolving that here means the
         // matching loop below has one code path instead of two.
@@ -259,6 +420,7 @@ public:
         if (!limit.has_value()) {
             // Market order with nothing resting opposite. No reference price and
             // nothing to trade against, so the whole order is cancelled.
+            emit_cancelled(on_event, order, order.quantity());
             return SubmitResult{SubmitStatus::Accepted, Quantity{}, Quantity{}, order.quantity()};
         }
 
@@ -266,6 +428,7 @@ public:
         // a trade already handed to the sink cannot be withdrawn.
         if (order.time_in_force() == TimeInForce::FillOrKill &&
             book_.quantity_available(order.side(), *limit) < order.quantity()) {
+            emit_cancelled(on_event, order, order.quantity());
             return SubmitResult{SubmitStatus::Accepted, Quantity{}, Quantity{}, order.quantity()};
         }
 
@@ -290,13 +453,12 @@ public:
             const Quantity fill = std::min(remaining, *maker_remaining);
             assert(fill > Quantity{} && "a zero-quantity fill would loop forever");
 
-            on_trade(Trade{
-                .maker_id = *maker,
-                .taker_id = order.id(),
-                .price = *touch,  // the maker's price; improvement goes to the taker
-                .quantity = fill,
-                .aggressor = order.side(),
-            });
+            emit(on_event, Event{.order_id = order.id(),
+                                 .counterparty_id = *maker,
+                                 .price = *touch,  // the maker's price
+                                 .quantity = fill,
+                                 .side = order.side(),
+                                 .type = EventType::Trade});
 
             if (fill == *maker_remaining) {
                 [[maybe_unused]] const bool retired = book_.remove(*maker);
@@ -329,128 +491,17 @@ public:
             return SubmitResult{SubmitStatus::Accepted, filled, remaining, Quantity{}};
         }
 
+        emit_cancelled(on_event, order, remaining);
         return SubmitResult{SubmitStatus::Accepted, filled, Quantity{}, remaining};
     }
 
-    /// Changes the price and/or remaining quantity of a resting order.
-    ///
-    /// `new_quantity` is the new *remaining* quantity, not a new total order
-    /// size. An order with 20 left that is modified to 25 rests 25, whatever it
-    /// filled beforehand. FIX models this the other way, as a new total, but
-    /// that needs the original quantity stored per resting order and the book
-    /// keeps only the remainder (DD-017, DD-031).
-    ///
-    /// Queue priority follows the usual venue rule:
-    ///
-    /// | Change | Priority |
-    /// |---|---|
-    /// | quantity reduced, same price | retained |
-    /// | quantity unchanged, same price | retained |
-    /// | quantity increased | lost |
-    /// | price changed | lost |
-    ///
-    /// Shrinking an order takes nothing from the orders behind it, so there is
-    /// no reason to move it back. Growing it does, so it goes to the back.
-    ///
-    /// A modify that reprices an order across the spread trades, exactly as a
-    /// fresh order at that price would. `on_trade` is called for each execution.
-    /// The order keeps its id throughout.
-    template <typename TradeSink>
-    [[nodiscard]] ModifyResult modify(OrderId id, Price new_price, Quantity new_quantity,
-                                      TradeSink&& on_trade) {
-        if (!id.is_valid()) {
-            return ModifyResult{ModifyStatus::RejectedInvalidId, Quantity{}, Quantity{},
-                                QueuePriority::Lost};
-        }
-        if (!new_quantity.is_valid()) {
-            // Modifying to zero would mean deleting the order, which is cancel's
-            // job. Rejecting keeps the two operations distinct.
-            return ModifyResult{ModifyStatus::RejectedInvalidQuantity, Quantity{}, Quantity{},
-                                QueuePriority::Lost};
-        }
-
-        const std::optional<RestingOrder> existing = book_.resting_order(id);
-        if (!existing.has_value()) {
-            return ModifyResult{ModifyStatus::UnknownOrder, Quantity{}, Quantity{},
-                                QueuePriority::Lost};
-        }
-
-        const bool price_changed = new_price != existing->price;
-        const bool quantity_increased = new_quantity > existing->remaining;
-
-        if (!price_changed && !quantity_increased) {
-            // Same price, and not larger. The order stays exactly where it is.
-            if (new_quantity < existing->remaining) {
-                [[maybe_unused]] const bool reduced =
-                    book_.reduce(id, existing->remaining - new_quantity);
-                assert(reduced);
-            }
-            return ModifyResult{ModifyStatus::Modified, Quantity{}, new_quantity,
-                                QueuePriority::Retained};
-        }
-
-        // Priority is lost, so the order leaves and comes back as a new arrival.
-        // Routing it through submit() rather than straight back into the book is
-        // what makes a repriced order trade when it now crosses.
-        [[maybe_unused]] const bool removed = book_.remove(id);
-        assert(removed && "resting_order found it but remove did not");
-
-        // Every rejection submit() can produce is already ruled out: the id was
-        // just removed so it cannot collide, and a Limit/GoodTillCancel order
-        // built from a valid id, a book-supplied side and a non-zero quantity is
-        // structurally valid.
-        const SubmitResult result =
-            submit(Order::limit(id, existing->side, new_price, new_quantity),
-                   std::forward<TradeSink>(on_trade));
-        assert(result.accepted() && "the replacement order should always be acceptable");
-
-        return ModifyResult{ModifyStatus::Modified, result.filled, result.resting,
-                            QueuePriority::Lost};
-    }
-
-    /// Cancels a resting order.
-    ///
-    /// Returns the quantity that was still resting, which is what the client
-    /// actually pulled. An order that partially filled first reports only the
-    /// part that was left.
-    ///
-    /// Cancelling is idempotent from the caller's point of view: a second cancel
-    /// of the same id reports UnknownOrder rather than failing loudly.
-    ///
-    /// There is no owner check. Anyone may cancel any order, because `Order`
-    /// carries no participant id. That is the same gap as self-trade prevention
-    /// and is parked for the same reason.
-    [[nodiscard]] CancelResult cancel(OrderId id) {
-        if (!id.is_valid()) {
-            return CancelResult{CancelStatus::RejectedInvalidId, Quantity{}};
-        }
-
-        // Read the remaining quantity before removing, since the order is gone
-        // afterwards and this is what the caller needs reported back.
-        const std::optional<Quantity> remaining = book_.remaining_of(id);
-        if (!remaining.has_value()) {
-            return CancelResult{CancelStatus::UnknownOrder, Quantity{}};
-        }
-
-        [[maybe_unused]] const bool removed = book_.remove(id);
-        assert(removed && "remaining_of found the order but remove did not");
-
-        return CancelResult{CancelStatus::Cancelled, *remaining};
-    }
-
-    /// Read-only view of the book. Its own interface is handle-based (DD-018),
-    /// so a const reference exposes nothing a caller could depend on.
-    [[nodiscard]] const OrderBook& book() const noexcept {
-        return book_;
-    }
-
-    [[nodiscard]] const EngineConfig& config() const noexcept {
-        return config_;
-    }
-
-private:
-    [[nodiscard]] static constexpr SubmitResult rejected(SubmitStatus status) noexcept {
-        return SubmitResult{status, Quantity{}, Quantity{}, Quantity{}};
+    template <typename EventSink>
+    void emit_cancelled(EventSink& on_event, const Order& order, Quantity quantity) {
+        emit(on_event, Event{.order_id = order.id(),
+                             .price = quoted_price(order),
+                             .quantity = quantity,
+                             .side = order.side(),
+                             .type = EventType::Cancelled});
     }
 
     /// The worst price this order is willing to trade at.
@@ -504,6 +555,7 @@ private:
 
     EngineConfig config_{};
     OrderBook book_;
+    SequenceNumber last_sequence_{};
 };
 
 }  // namespace flashpoint

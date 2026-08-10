@@ -9,14 +9,20 @@ standards of production exchange infrastructure: price-time priority matching,
 a measured performance story, and a test suite that runs under sanitizers on
 every commit.
 
-> **Status: in development.** Milestone 8 of 13 complete — the build system, CI,
+> **Status: in development.** Milestone 9 of 13 complete — the build system, CI,
 > the core domain types, the order book, matching for limit and market orders,
-> cancel and modify are in place. The event stream is next. See
-> [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
+> cancel, modify and the event stream are in place. Benchmarks are next.
+> See [`docs/ROADMAP.md`](docs/ROADMAP.md). This README describes what exists right
 > now, not what is planned.
 
 ## What exists currently
 
+- **Event stream and market data.** Every operation publishes an ordered,
+  sequence-numbered stream of what it did: acknowledgements, executions,
+  rejections, cancellations and amendments. Events are one flat trivially
+  copyable record, so a stream can be written and read back with no encoding
+  step. Plus top-of-book and an L2 depth snapshot that fills a caller-supplied
+  buffer without allocating.
 - **Cancel and modify.** Cancel reports the quantity that was still resting,
   which is what the client actually pulled. Modify follows the venue rule for
   queue priority: shrinking an order keeps its place in line, growing it or
@@ -39,7 +45,7 @@ every commit.
   Strong types, not typedefs: passing a quantity where a price belongs is a
   compile error, and `Order` is pinned at 32 bytes so two share a cache line.
 - CMake build producing a `flashpoint` static library and a GoogleTest suite,
-  148 tests running under ASan/UBSan, including differential and randomised
+  186 tests running under ASan/UBSan, including differential and randomised
   invariant tests for both the book and the engine.
 - Three build presets: Debug with ASan/UBSan, Release, and RelWithDebInfo.
 - `-Werror` with an aggressive warning set including `-Wconversion`.
@@ -48,8 +54,8 @@ every commit.
 
 ## Planned
 
-An event stream with L2 market data, a benchmark suite reporting
-p50/p99/p99.9 latency, and a replay demo.
+A benchmark suite reporting p50/p99/p99.9 latency, a measured tuning pass,
+and a replay demo.
 
 ## Quick start
 

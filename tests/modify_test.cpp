@@ -17,7 +17,9 @@
 #include "flashpoint/order_book.hpp"
 #include "flashpoint/ostream.hpp"
 #include "flashpoint/trade.hpp"
+
 #include "flashpoint/types.hpp"
+#include "test_support.hpp"
 
 #include <gtest/gtest.h>
 
@@ -28,18 +30,19 @@
 namespace flashpoint {
 namespace {
 
-void ignore_trades(const Trade&) {}
+using testing_support::EventRecorder;
+using testing_support::ignore_events;
 
 [[nodiscard]] SubmitResult rest_buy(MatchingEngine& engine, OrderId::Rep id, Price::Rep price,
                                     Quantity::Rep quantity) {
     return engine.submit(Order::limit(OrderId{id}, Side::Buy, Price{price}, Quantity{quantity}),
-                         ignore_trades);
+                         ignore_events);
 }
 
 [[nodiscard]] SubmitResult rest_sell(MatchingEngine& engine, OrderId::Rep id, Price::Rep price,
                                      Quantity::Rep quantity) {
     return engine.submit(Order::limit(OrderId{id}, Side::Sell, Price{price}, Quantity{quantity}),
-                         ignore_trades);
+                         ignore_events);
 }
 
 struct Amended {
@@ -49,11 +52,10 @@ struct Amended {
 
 [[nodiscard]] Amended amend(MatchingEngine& engine, OrderId::Rep id, Price::Rep price,
                             Quantity::Rep quantity) {
-    std::vector<Trade> trades;
+    EventRecorder recorder;
     const ModifyResult result =
-        engine.modify(OrderId{id}, Price{price}, Quantity{quantity},
-                      [&trades](const Trade& trade) { trades.push_back(trade); });
-    return Amended{result, std::move(trades)};
+        engine.modify(OrderId{id}, Price{price}, Quantity{quantity}, recorder);
+    return Amended{result, recorder.trades()};
 }
 
 /// Two sells at 100: #101 first with 50, #102 second with 30.
@@ -92,12 +94,12 @@ TEST(Modify, AnOrderThatKeptPriorityStillFillsFirst) {
 
     ASSERT_EQ(amend(engine, 101, 100, 20).result.priority, QueuePriority::Retained);
 
-    std::vector<Trade> trades;
+    EventRecorder recorder;
     const SubmitResult result =
-        engine.submit(Order::limit(OrderId{1}, Side::Buy, Price{100}, Quantity{20}),
-                      [&trades](const Trade& trade) { trades.push_back(trade); });
+        engine.submit(Order::limit(OrderId{1}, Side::Buy, Price{100}, Quantity{20}), recorder);
 
     ASSERT_TRUE(result.accepted());
+    const std::vector<Trade> trades = recorder.trades();
     ASSERT_EQ(trades.size(), 1U);
     EXPECT_EQ(trades[0].maker_id, OrderId{101});
 }
@@ -140,12 +142,12 @@ TEST(Modify, AnOrderThatLostPriorityFillsSecond) {
 
     ASSERT_EQ(amend(engine, 101, 100, 80).result.priority, QueuePriority::Lost);
 
-    std::vector<Trade> trades;
+    EventRecorder recorder;
     const SubmitResult result =
-        engine.submit(Order::limit(OrderId{1}, Side::Buy, Price{100}, Quantity{30}),
-                      [&trades](const Trade& trade) { trades.push_back(trade); });
+        engine.submit(Order::limit(OrderId{1}, Side::Buy, Price{100}, Quantity{30}), recorder);
 
     ASSERT_TRUE(result.accepted());
+    const std::vector<Trade> trades = recorder.trades();
     ASSERT_EQ(trades.size(), 1U);
     EXPECT_EQ(trades[0].maker_id, OrderId{102});
 }
@@ -280,7 +282,7 @@ TEST(Modify, TheReservedOrderIdIsRejectedAsMalformed) {
 TEST(Modify, AnAlreadyCancelledOrderCannotBeModified) {
     MatchingEngine engine;
     ASSERT_TRUE(rest_buy(engine, 1, 100, 50).accepted());
-    ASSERT_TRUE(engine.cancel(OrderId{1}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{1}, ignore_events).succeeded());
 
     EXPECT_EQ(amend(engine, 1, 101, 10).result.status, ModifyStatus::UnknownOrder);
     EXPECT_TRUE(engine.book().empty());
@@ -357,7 +359,7 @@ TEST(ModifyInvariants, PriorityRuleHoldsAndQuantitiesAddUp) {
             const Price new_price{price_dist(rng)};
             const Quantity new_quantity{quantity_dist(rng)};
 
-            const ModifyResult result = engine.modify(id, new_price, new_quantity, ignore_trades);
+            const ModifyResult result = engine.modify(id, new_price, new_quantity, ignore_events);
 
             if (!before.has_value()) {
                 // Filled since it was submitted, so there is nothing to modify.
@@ -394,7 +396,7 @@ TEST(ModifyInvariants, PriorityRuleHoldsAndQuantitiesAddUp) {
             const OrderId id = resting[slot];
             resting[slot] = resting.back();
             resting.pop_back();
-            const CancelResult result = engine.cancel(id);
+            const CancelResult result = engine.cancel(id, ignore_events);
             ASSERT_TRUE(result.succeeded() || result.status == CancelStatus::UnknownOrder)
                 << "step " << step;
         } else {
@@ -402,7 +404,7 @@ TEST(ModifyInvariants, PriorityRuleHoldsAndQuantitiesAddUp) {
             const Side side = roll(rng) % 2 == 0 ? Side::Buy : Side::Sell;
             const Order order =
                 Order::limit(id, side, Price{price_dist(rng)}, Quantity{quantity_dist(rng)});
-            const SubmitResult result = engine.submit(order, ignore_trades);
+            const SubmitResult result = engine.submit(order, ignore_events);
             ASSERT_TRUE(result.accepted()) << "step " << step;
             if (result.resting > Quantity{}) {
                 resting.push_back(id);

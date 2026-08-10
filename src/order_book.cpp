@@ -204,6 +204,42 @@ std::optional<OrderId> OrderBook::front_at(Side side, Price price) const {
     return nodes_[level->head].id;
 }
 
+TopOfBook OrderBook::top_of_book() const {
+    TopOfBook top;
+
+    if (!bids_.empty()) {
+        const auto& [price, level] = *bids_.rbegin();
+        top.bid_price = price;
+        top.bid_quantity = level.total;
+    }
+    if (!asks_.empty()) {
+        const auto& [price, level] = *asks_.begin();
+        top.ask_price = price;
+        top.ask_quantity = level.total;
+    }
+
+    return top;
+}
+
+std::size_t OrderBook::snapshot(Side side, std::span<LevelSnapshot> out) const {
+    std::size_t written = 0;
+
+    if (side == Side::Buy) {
+        // Bids are stored ascending, so walk backwards to get the best first.
+        for (auto it = bids_.rbegin(); it != bids_.rend() && written < out.size(); ++it) {
+            out[written] = LevelSnapshot{it->first, it->second.total, it->second.count};
+            ++written;
+        }
+    } else {
+        for (auto it = asks_.begin(); it != asks_.end() && written < out.size(); ++it) {
+            out[written] = LevelSnapshot{it->first, it->second.total, it->second.count};
+            ++written;
+        }
+    }
+
+    return written;
+}
+
 Quantity OrderBook::quantity_available(Side aggressor_side, Price limit) const {
     Quantity total{};
 

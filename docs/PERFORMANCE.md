@@ -105,6 +105,13 @@ measurement can find:
   `std::function`, and no per-order container is built (DD-019, DD-023).
 - **A partial fill costs no relinking.** `OrderBook::reduce` updates two integers
   and touches neither the queue links nor the level's head and tail.
+- **Publishing an event allocates nothing.** The sink is a template parameter, so
+  the call is direct and inlinable, and `Event` is a fixed-size trivially
+  copyable record passed by reference (DD-034, DD-035).
+- **Depth snapshots allocate nothing.** `OrderBook::snapshot` writes into a
+  buffer the caller owns, so a publisher reuses one array across thousands of
+  snapshots (DD-038). Aggregates are already cached per level, so a snapshot
+  never walks an order queue.
 
 ## Environment used for benchmarking
 

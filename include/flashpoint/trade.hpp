@@ -1,7 +1,9 @@
 #pragma once
 
+#include "flashpoint/event.hpp"
 #include "flashpoint/types.hpp"
 
+#include <cassert>
 #include <type_traits>
 
 namespace flashpoint {
@@ -49,5 +51,21 @@ static_assert(std::is_trivially_copyable_v<Trade>,
 static_assert(std::is_aggregate_v<Trade>,
               "Trade must remain an aggregate so that designated initialisers keep guarding the "
               "two adjacent OrderId fields (DD-021).");
+
+/// Extracts a Trade from a Trade event.
+///
+/// The engine publishes executions as `Event`s so the whole stream is one record
+/// type. This rebuilds the narrower value for anyone who only cares about the
+/// tape, such as a market data consumer.
+///
+/// Precondition: `event.type == EventType::Trade`.
+[[nodiscard]] constexpr Trade to_trade(const Event& event) noexcept {
+    assert(event.type == EventType::Trade && "to_trade requires a Trade event");
+    return Trade{.maker_id = event.counterparty_id,
+                 .taker_id = event.order_id,
+                 .price = event.price,
+                 .quantity = event.quantity,
+                 .aggressor = event.side};
+}
 
 }  // namespace flashpoint

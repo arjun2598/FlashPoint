@@ -19,6 +19,8 @@ include(GoogleTest)
 
 add_executable(flashpoint_tests
     cancel_test.cpp
+    event_test.cpp
+    market_data_test.cpp
     matching_engine_test.cpp
     modify_test.cpp
     order_book_test.cpp

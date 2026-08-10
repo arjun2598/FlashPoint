@@ -21,7 +21,9 @@
 #include "flashpoint/order.hpp"
 #include "flashpoint/ostream.hpp"
 #include "flashpoint/trade.hpp"
+
 #include "flashpoint/types.hpp"
+#include "test_support.hpp"
 
 #include <gtest/gtest.h>
 
@@ -43,13 +45,8 @@ Order sell(OrderId::Rep id, Price::Rep price, Quantity::Rep quantity) {
 
 /// Captures every trade an order produces, so a test can assert on the sequence
 /// rather than only on the aggregate outcome.
-struct Recorder {
-    std::vector<Trade> trades;
-
-    void operator()(const Trade& trade) {
-        trades.push_back(trade);
-    }
-};
+using testing_support::EventRecorder;
+using testing_support::ignore_events;
 
 struct Submitted {
     SubmitResult result;
@@ -57,9 +54,9 @@ struct Submitted {
 };
 
 [[nodiscard]] Submitted send(MatchingEngine& engine, const Order& order) {
-    Recorder recorder;
+    EventRecorder recorder;
     const SubmitResult result = engine.submit(order, recorder);
-    return Submitted{result, std::move(recorder.trades)};
+    return Submitted{result, recorder.trades()};
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +391,7 @@ TEST(MatchingEngineInvariants, NeverLeavesTheBookCrossedAndNeverLosesQuantity) {
         const Side side = side_dist(rng) == 0 ? Side::Buy : Side::Sell;
         const Order order{OrderId{id}, side, Price{price_dist(rng)}, Quantity{quantity_dist(rng)}};
 
-        Recorder recorder;
+        EventRecorder recorder;
         const SubmitResult result = engine.submit(order, recorder);
         ASSERT_TRUE(result.accepted()) << "step " << step << ' ' << order;
 
@@ -403,7 +400,7 @@ TEST(MatchingEngineInvariants, NeverLeavesTheBookCrossedAndNeverLosesQuantity) {
 
         // The recorded trades must account for exactly the filled quantity.
         Quantity from_trades{};
-        for (const Trade& trade : recorder.trades) {
+        for (const Trade& trade : recorder.trades()) {
             from_trades += trade.quantity;
             ASSERT_EQ(trade.taker_id, order.id()) << "step " << step;
             ASSERT_EQ(trade.aggressor, order.side()) << "step " << step;

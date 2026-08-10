@@ -14,7 +14,9 @@
 #include "flashpoint/order.hpp"
 #include "flashpoint/ostream.hpp"
 #include "flashpoint/trade.hpp"
+
 #include "flashpoint/types.hpp"
+#include "test_support.hpp"
 
 #include <gtest/gtest.h>
 
@@ -46,13 +48,8 @@ Order market_sell(OrderId::Rep id, Quantity::Rep quantity,
     return Order::market(OrderId{id}, Side::Sell, Quantity{quantity}, tif);
 }
 
-struct Recorder {
-    std::vector<Trade> trades;
-
-    void operator()(const Trade& trade) {
-        trades.push_back(trade);
-    }
-};
+using testing_support::EventRecorder;
+using testing_support::ignore_events;
 
 struct Submitted {
     SubmitResult result;
@@ -60,16 +57,16 @@ struct Submitted {
 };
 
 [[nodiscard]] Submitted send(MatchingEngine& engine, const Order& order) {
-    Recorder recorder;
+    EventRecorder recorder;
     const SubmitResult result = engine.submit(order, recorder);
-    return Submitted{result, std::move(recorder.trades)};
+    return Submitted{result, recorder.trades()};
 }
 
 /// A book with three ask levels: 30 at 100, 40 at 101, 50 at 105.
 void build_asks(MatchingEngine& engine) {
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_sell(102, 101, 40), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_sell(103, 105, 50), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(102, 101, 40), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(103, 105, 50), ignore_events).accepted());
 }
 
 // ---------------------------------------------------------------------------
@@ -117,8 +114,8 @@ TEST(MarketOrder, StopsAtTheProtectionPriceAndCancelsTheRest) {
 // 102, and stays 102 even after the 100 level is consumed.
 TEST(MarketOrder, ProtectionIsMeasuredFromTheTouchAtArrival) {
     MatchingEngine engine{EngineConfig{.market_protection_ticks = 2}};
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 10), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_sell(102, 103, 10), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 10), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(102, 103, 10), ignore_events).accepted());
 
     const Submitted submitted = send(engine, market_buy(1, 20));
 
@@ -129,9 +126,9 @@ TEST(MarketOrder, ProtectionIsMeasuredFromTheTouchAtArrival) {
 
 TEST(MarketOrder, SellingMirrorsBuyingAgainstTheBids) {
     MatchingEngine engine{EngineConfig{.market_protection_ticks = 2}};
-    ASSERT_TRUE(engine.submit(limit_buy(101, 100, 30), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_buy(102, 99, 30), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_buy(103, 95, 30), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_buy(101, 100, 30), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_buy(102, 99, 30), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_buy(103, 95, 30), ignore_events).accepted());
 
     const Submitted submitted = send(engine, market_sell(1, 90));
 
@@ -147,7 +144,7 @@ TEST(MarketOrder, SellingMirrorsBuyingAgainstTheBids) {
 // and nothing to trade against either.
 TEST(MarketOrder, IsCancelledEntirelyWhenTheOppositeSideIsEmpty) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_buy(101, 100, 50), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_buy(101, 100, 50), ignore_events).accepted());
 
     const Submitted submitted = send(engine, market_buy(1, 50));
 
@@ -162,7 +159,7 @@ TEST(MarketOrder, IsCancelledEntirelyWhenTheOppositeSideIsEmpty) {
 // A market order has no price of its own, so it can never rest.
 TEST(MarketOrder, NeverRests) {
     MatchingEngine engine{EngineConfig{.market_protection_ticks = 1}};
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 10), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 10), ignore_events).accepted());
 
     const Submitted submitted = send(engine, market_buy(1, 100));
 
@@ -180,11 +177,11 @@ TEST(MarketOrder, ProtectionSaturatesAtTheEndsOfThePriceRange) {
     constexpr auto kLowest = std::numeric_limits<Price::Rep>::min();
 
     MatchingEngine buying{EngineConfig{.market_protection_ticks = 1000}};
-    ASSERT_TRUE(buying.submit(limit_sell(101, kHighest, 10), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(buying.submit(limit_sell(101, kHighest, 10), ignore_events).accepted());
     EXPECT_EQ(send(buying, market_buy(1, 10)).result.filled, Quantity{10});
 
     MatchingEngine selling{EngineConfig{.market_protection_ticks = 1000}};
-    ASSERT_TRUE(selling.submit(limit_buy(102, kLowest, 10), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(selling.submit(limit_buy(102, kLowest, 10), ignore_events).accepted());
     EXPECT_EQ(send(selling, market_sell(2, 10)).result.filled, Quantity{10});
 }
 
@@ -207,7 +204,7 @@ TEST(MarketOrder, AZeroBandAllowsOnlyTheTouchPrice) {
 
 TEST(ImmediateOrCancel, TradesWhatItCanAndCancelsTheRest) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), ignore_events).accepted());
 
     const Submitted submitted = send(engine, limit_buy(1, 100, 50, TimeInForce::ImmediateOrCancel));
 
@@ -221,7 +218,7 @@ TEST(ImmediateOrCancel, TradesWhatItCanAndCancelsTheRest) {
 
 TEST(ImmediateOrCancel, ReportsNothingCancelledWhenItFillsCompletely) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 50), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 50), ignore_events).accepted());
 
     const Submitted submitted = send(engine, limit_buy(1, 100, 50, TimeInForce::ImmediateOrCancel));
 
@@ -232,7 +229,7 @@ TEST(ImmediateOrCancel, ReportsNothingCancelledWhenItFillsCompletely) {
 // Nothing crosses, so an IOC order leaves no trace.
 TEST(ImmediateOrCancel, LeavesTheBookUnchangedWhenNothingCrosses) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_sell(101, 101, 50), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 101, 50), ignore_events).accepted());
 
     const Submitted submitted = send(engine, limit_buy(1, 100, 50, TimeInForce::ImmediateOrCancel));
 
@@ -248,8 +245,8 @@ TEST(ImmediateOrCancel, LeavesTheBookUnchangedWhenNothingCrosses) {
 
 TEST(FillOrKill, FillsCompletelyWhenEnoughLiquidityExists) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_sell(102, 101, 30), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(102, 101, 30), ignore_events).accepted());
 
     const Submitted submitted = send(engine, limit_buy(1, 101, 60, TimeInForce::FillOrKill));
 
@@ -263,7 +260,7 @@ TEST(FillOrKill, FillsCompletelyWhenEnoughLiquidityExists) {
 // handed to the sink cannot be withdrawn.
 TEST(FillOrKill, EmitsNoTradesAndChangesNothingWhenItCannotFill) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), ignore_events).accepted());
 
     const Submitted submitted = send(engine, limit_buy(1, 100, 50, TimeInForce::FillOrKill));
 
@@ -277,20 +274,20 @@ TEST(FillOrKill, EmitsNoTradesAndChangesNothingWhenItCannotFill) {
 // Exactly enough must fill; one short must not. This pins the comparison.
 TEST(FillOrKill, ExactlyEnoughFillsAndOneShortDoesNot) {
     MatchingEngine exact;
-    ASSERT_TRUE(exact.submit(limit_sell(101, 100, 50), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(exact.submit(limit_sell(101, 100, 50), ignore_events).accepted());
     EXPECT_EQ(send(exact, limit_buy(1, 100, 50, TimeInForce::FillOrKill)).result.filled,
               Quantity{50});
 
     MatchingEngine short_by_one;
-    ASSERT_TRUE(short_by_one.submit(limit_sell(102, 100, 49), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(short_by_one.submit(limit_sell(102, 100, 49), ignore_events).accepted());
     EXPECT_TRUE(send(short_by_one, limit_buy(2, 100, 50, TimeInForce::FillOrKill)).trades.empty());
 }
 
 // Liquidity priced outside the order's limit does not count towards fillability.
 TEST(FillOrKill, IgnoresLiquidityBeyondItsLimitPrice) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), [](const Trade&) {}).accepted());
-    ASSERT_TRUE(engine.submit(limit_sell(102, 105, 30), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(101, 100, 30), ignore_events).accepted());
+    ASSERT_TRUE(engine.submit(limit_sell(102, 105, 30), ignore_events).accepted());
 
     // 60 available in total, but only 30 at or below the limit of 100.
     const Submitted submitted = send(engine, limit_buy(1, 100, 60, TimeInForce::FillOrKill));
@@ -302,7 +299,7 @@ TEST(FillOrKill, IgnoresLiquidityBeyondItsLimitPrice) {
 
 TEST(FillOrKill, WorksOnTheSellSideToo) {
     MatchingEngine engine;
-    ASSERT_TRUE(engine.submit(limit_buy(101, 100, 30), [](const Trade&) {}).accepted());
+    ASSERT_TRUE(engine.submit(limit_buy(101, 100, 30), ignore_events).accepted());
 
     EXPECT_TRUE(send(engine, limit_sell(1, 100, 50, TimeInForce::FillOrKill)).trades.empty());
     EXPECT_EQ(send(engine, limit_sell(2, 100, 30, TimeInForce::FillOrKill)).result.filled,
@@ -396,7 +393,7 @@ TEST(MixedFlowInvariants, QuantitiesAddUpAndTheBookIsNeverCrossed) {
             order = Order::limit(OrderId{id}, side, Price{price_dist(rng)}, quantity);
         }
 
-        Recorder recorder;
+        EventRecorder recorder;
         const SubmitResult result = engine.submit(order, recorder);
         ASSERT_TRUE(result.accepted()) << "step " << step << ' ' << order;
 
@@ -404,7 +401,7 @@ TEST(MixedFlowInvariants, QuantitiesAddUpAndTheBookIsNeverCrossed) {
             << "step " << step << ' ' << order;
 
         Quantity from_trades{};
-        for (const Trade& trade : recorder.trades) {
+        for (const Trade& trade : recorder.trades()) {
             from_trades += trade.quantity;
         }
         ASSERT_EQ(from_trades, result.filled) << "step " << step;

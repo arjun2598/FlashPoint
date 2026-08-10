@@ -17,7 +17,9 @@
 #include "flashpoint/order.hpp"
 #include "flashpoint/ostream.hpp"
 #include "flashpoint/trade.hpp"
+
 #include "flashpoint/types.hpp"
+#include "test_support.hpp"
 
 #include <gtest/gtest.h>
 
@@ -27,18 +29,19 @@
 namespace flashpoint {
 namespace {
 
-void ignore_trades(const Trade&) {}
+using testing_support::EventRecorder;
+using testing_support::ignore_events;
 
 [[nodiscard]] SubmitResult rest_buy(MatchingEngine& engine, OrderId::Rep id, Price::Rep price,
                                     Quantity::Rep quantity) {
     return engine.submit(Order::limit(OrderId{id}, Side::Buy, Price{price}, Quantity{quantity}),
-                         ignore_trades);
+                         ignore_events);
 }
 
 [[nodiscard]] SubmitResult rest_sell(MatchingEngine& engine, OrderId::Rep id, Price::Rep price,
                                      Quantity::Rep quantity) {
     return engine.submit(Order::limit(OrderId{id}, Side::Sell, Price{price}, Quantity{quantity}),
-                         ignore_trades);
+                         ignore_events);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +52,7 @@ TEST(Cancel, RemovesTheOrderAndReportsItsQuantity) {
     MatchingEngine engine;
     ASSERT_TRUE(rest_buy(engine, 1, 100, 50).accepted());
 
-    const CancelResult result = engine.cancel(OrderId{1});
+    const CancelResult result = engine.cancel(OrderId{1}, ignore_events);
 
     EXPECT_EQ(result, (CancelResult{CancelStatus::Cancelled, Quantity{50}}));
     EXPECT_TRUE(engine.book().empty());
@@ -67,7 +70,7 @@ TEST(Cancel, ReportsTheRemainingQuantityAfterAPartialFill) {
     ASSERT_TRUE(rest_buy(engine, 2, 100, 30).accepted());
     ASSERT_EQ(engine.book().remaining_of(OrderId{1}), Quantity{20});
 
-    const CancelResult result = engine.cancel(OrderId{1});
+    const CancelResult result = engine.cancel(OrderId{1}, ignore_events);
 
     EXPECT_EQ(result.status, CancelStatus::Cancelled);
     EXPECT_EQ(result.cancelled, Quantity{20});
@@ -79,7 +82,7 @@ TEST(Cancel, LeavesTheOppositeSideAlone) {
     ASSERT_TRUE(rest_buy(engine, 1, 100, 50).accepted());
     ASSERT_TRUE(rest_sell(engine, 2, 105, 40).accepted());
 
-    ASSERT_TRUE(engine.cancel(OrderId{1}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{1}, ignore_events).succeeded());
 
     EXPECT_FALSE(engine.book().best_bid().has_value());
     EXPECT_EQ(engine.book().best_ask(), Price{105});
@@ -91,7 +94,7 @@ TEST(Cancel, DrainingTheBestLevelPromotesTheNextOne) {
     ASSERT_TRUE(rest_buy(engine, 1, 102, 10).accepted());
     ASSERT_TRUE(rest_buy(engine, 2, 101, 10).accepted());
 
-    ASSERT_TRUE(engine.cancel(OrderId{1}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{1}, ignore_events).succeeded());
 
     EXPECT_EQ(engine.book().best_bid(), Price{101});
     EXPECT_EQ(engine.book().quantity_at(Side::Buy, Price{102}), Quantity{});
@@ -109,14 +112,14 @@ TEST(Cancel, RemovingAMiddleOrderKeepsTheRestInOrder) {
     ASSERT_TRUE(rest_sell(engine, 102, 100, 20).accepted());
     ASSERT_TRUE(rest_sell(engine, 103, 100, 30).accepted());
 
-    ASSERT_TRUE(engine.cancel(OrderId{102}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{102}, ignore_events).succeeded());
 
     EXPECT_EQ(engine.book().front_at(Side::Sell, Price{100}), OrderId{101});
     EXPECT_EQ(engine.book().quantity_at(Side::Sell, Price{100}), Quantity{40});
     EXPECT_EQ(engine.book().order_count_at(Side::Sell, Price{100}), 2U);
 
     // #103 is next once #101 goes.
-    ASSERT_TRUE(engine.cancel(OrderId{101}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{101}, ignore_events).succeeded());
     EXPECT_EQ(engine.book().front_at(Side::Sell, Price{100}), OrderId{103});
 }
 
@@ -125,7 +128,7 @@ TEST(Cancel, RemovingTheFrontOrderPromotesTheNextInLine) {
     ASSERT_TRUE(rest_sell(engine, 101, 100, 10).accepted());
     ASSERT_TRUE(rest_sell(engine, 102, 100, 20).accepted());
 
-    ASSERT_TRUE(engine.cancel(OrderId{101}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{101}, ignore_events).succeeded());
 
     EXPECT_EQ(engine.book().front_at(Side::Sell, Price{100}), OrderId{102});
 }
@@ -138,7 +141,7 @@ TEST(Cancel, UnknownIdReportsUnknownOrderAndChangesNothing) {
     MatchingEngine engine;
     ASSERT_TRUE(rest_buy(engine, 1, 100, 50).accepted());
 
-    const CancelResult result = engine.cancel(OrderId{99});
+    const CancelResult result = engine.cancel(OrderId{99}, ignore_events);
 
     EXPECT_EQ(result, (CancelResult{CancelStatus::UnknownOrder, Quantity{}}));
     EXPECT_EQ(engine.book().size(), 1U);
@@ -148,16 +151,16 @@ TEST(Cancel, UnknownIdReportsUnknownOrderAndChangesNothing) {
 TEST(Cancel, CancellingAnEmptyBookReportsUnknownOrder) {
     MatchingEngine engine;
 
-    EXPECT_EQ(engine.cancel(OrderId{1}).status, CancelStatus::UnknownOrder);
+    EXPECT_EQ(engine.cancel(OrderId{1}, ignore_events).status, CancelStatus::UnknownOrder);
 }
 
 TEST(Cancel, ASecondCancelOfTheSameOrderReportsUnknownOrder) {
     MatchingEngine engine;
     ASSERT_TRUE(rest_buy(engine, 1, 100, 50).accepted());
 
-    ASSERT_TRUE(engine.cancel(OrderId{1}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{1}, ignore_events).succeeded());
 
-    const CancelResult second = engine.cancel(OrderId{1});
+    const CancelResult second = engine.cancel(OrderId{1}, ignore_events);
     EXPECT_EQ(second.status, CancelStatus::UnknownOrder);
     EXPECT_EQ(second.cancelled, Quantity{});
 }
@@ -171,9 +174,9 @@ TEST(Cancel, AFullyFilledOrderIsIndistinguishableFromOneThatNeverExisted) {
     ASSERT_TRUE(rest_buy(engine, 2, 100, 50).accepted());
     ASSERT_TRUE(engine.book().empty());
 
-    EXPECT_EQ(engine.cancel(OrderId{1}).status, CancelStatus::UnknownOrder);
-    EXPECT_EQ(engine.cancel(OrderId{2}).status, CancelStatus::UnknownOrder);
-    EXPECT_EQ(engine.cancel(OrderId{12345}).status, CancelStatus::UnknownOrder);
+    EXPECT_EQ(engine.cancel(OrderId{1}, ignore_events).status, CancelStatus::UnknownOrder);
+    EXPECT_EQ(engine.cancel(OrderId{2}, ignore_events).status, CancelStatus::UnknownOrder);
+    EXPECT_EQ(engine.cancel(OrderId{12345}, ignore_events).status, CancelStatus::UnknownOrder);
 }
 
 // A cancel naming the reserved "no order" value is malformed rather than a
@@ -181,7 +184,7 @@ TEST(Cancel, AFullyFilledOrderIsIndistinguishableFromOneThatNeverExisted) {
 TEST(Cancel, TheReservedOrderIdIsRejectedAsMalformed) {
     MatchingEngine engine;
 
-    const CancelResult result = engine.cancel(OrderId{OrderId::kNone});
+    const CancelResult result = engine.cancel(OrderId{OrderId::kNone}, ignore_events);
 
     EXPECT_EQ(result, (CancelResult{CancelStatus::RejectedInvalidId, Quantity{}}));
 }
@@ -195,7 +198,7 @@ TEST(Cancel, TheReservedOrderIdIsRejectedAsMalformed) {
 TEST(Cancel, FreesTheIdForReuse) {
     MatchingEngine engine;
     ASSERT_TRUE(rest_buy(engine, 1, 100, 50).accepted());
-    ASSERT_TRUE(engine.cancel(OrderId{1}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{1}, ignore_events).succeeded());
 
     EXPECT_EQ(rest_buy(engine, 1, 99, 20).status, SubmitStatus::Accepted);
     EXPECT_EQ(engine.book().best_bid(), Price{99});
@@ -206,16 +209,15 @@ TEST(Cancel, FreesTheIdForReuse) {
 TEST(Cancel, RemovesTheOrderFromWhatAnAggressorCanTrade) {
     MatchingEngine engine;
     ASSERT_TRUE(rest_sell(engine, 1, 100, 50).accepted());
-    ASSERT_TRUE(engine.cancel(OrderId{1}).succeeded());
+    ASSERT_TRUE(engine.cancel(OrderId{1}, ignore_events).succeeded());
 
     EXPECT_EQ(engine.book().quantity_available(Side::Buy, Price{200}), Quantity{});
 
-    std::vector<Trade> trades;
+    EventRecorder recorder;
     const SubmitResult result =
-        engine.submit(Order::limit(OrderId{2}, Side::Buy, Price{100}, Quantity{50}),
-                      [&trades](const Trade& trade) { trades.push_back(trade); });
+        engine.submit(Order::limit(OrderId{2}, Side::Buy, Price{100}, Quantity{50}), recorder);
 
-    EXPECT_TRUE(trades.empty());
+    EXPECT_TRUE(recorder.trades().empty());
     EXPECT_EQ(result.resting, Quantity{50});
 }
 
@@ -254,7 +256,7 @@ TEST(CancelInvariants, ReportedQuantityMatchesTheBookAndNothingIsLeftCrossed) {
             // order may have been partially filled since it was submitted.
             const auto expected = engine.book().remaining_of(id);
 
-            const CancelResult result = engine.cancel(id);
+            const CancelResult result = engine.cancel(id, ignore_events);
 
             if (expected.has_value()) {
                 ASSERT_EQ(result.status, CancelStatus::Cancelled) << "step " << step;
@@ -273,7 +275,7 @@ TEST(CancelInvariants, ReportedQuantityMatchesTheBookAndNothingIsLeftCrossed) {
             const Order order =
                 Order::limit(id, side, Price{price_dist(rng)}, Quantity{quantity_dist(rng)});
 
-            const SubmitResult result = engine.submit(order, ignore_trades);
+            const SubmitResult result = engine.submit(order, ignore_events);
             ASSERT_TRUE(result.accepted()) << "step " << step;
             ASSERT_EQ(result.filled + result.resting + result.cancelled, order.quantity())
                 << "step " << step;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "flashpoint/market_data.hpp"
 #include "flashpoint/order.hpp"
 #include "flashpoint/types.hpp"
 
@@ -8,6 +9,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -91,6 +93,23 @@ public:
     /// The order at the front of the queue for a price and side, and the one that
     /// time priority says fills next. Nullopt if the level is empty.
     [[nodiscard]] std::optional<OrderId> front_at(Side side, Price price) const;
+
+    /// Best price and quantity on each side.
+    [[nodiscard]] TopOfBook top_of_book() const;
+
+    /// Writes the best price levels on one side into `out`, best first.
+    ///
+    /// Returns how many rows were written, which is the smaller of `out.size()`
+    /// and the number of levels on that side. Bids come highest first, asks
+    /// lowest first.
+    ///
+    /// The caller supplies the buffer, so a publisher can reuse one array across
+    /// thousands of snapshots without allocating. Sizing the span is how the
+    /// caller chooses the depth.
+    ///
+    /// Rows are copies. Nothing in the returned data points into the book, which
+    /// is what keeps the price-level container replaceable (DD-018).
+    [[nodiscard]] std::size_t snapshot(Side side, std::span<LevelSnapshot> out) const;
 
     /// Total resting quantity an aggressor could trade against.
     ///

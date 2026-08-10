@@ -746,3 +746,112 @@ have to follow an id chain across amends.
 **Cost accepted:** a divergence from FIX, which models a replace as a new order.
 A venue reporting both ids would need the mapping kept somewhere, which is the
 same order-history subsystem DD-029 pushed outside the engine.
+
+---
+
+## DD-034 — An event is one flat record with a type tag
+
+**Decision:** `Event` is a single struct carrying every field any event type
+needs, plus an `EventType` saying which of them mean anything. The header
+documents the contract per type.
+
+**Alternatives:** a `std::variant` of five distinct event structs; or a sink with
+a separate callback per event type.
+
+**Why:** the deciding factor is Milestone 12. A replay demo wants to write the
+stream to a file and read it back, and a fixed-size trivially copyable record
+does that with no encoding step. A variant fights it, and per-type callbacks give
+up having a stream at all. This is also how real market data protocols are laid
+out.
+
+**Cost accepted:** fields that mean nothing for some types. A `Cancelled` event
+has a `counterparty_id` nobody should read. The mitigation is a table in
+`event.hpp` stating exactly which fields each type populates, and a
+`static_assert` keeping `Event` an aggregate so designated initialisers name each
+field at the point it is set.
+
+---
+
+## DD-035 — The event sink replaced the trade sink
+
+**Decision:** `submit`, `modify` and `cancel` each take an event sink.
+Executions arrive as `Trade` events alongside acknowledgements, rejections and
+cancellations. The result types stay, as summaries.
+
+**Alternative:** keep the trade sink and add an event sink beside it.
+
+**Why:** trades delivered through a second path are not part of the stream, and
+the ordering between a trade and the acknowledgement that preceded it would be
+unobservable. Keeping both would leave the design permanently worse to avoid one
+mechanical edit.
+
+**Cost accepted:** every existing call site changed, in the library and across
+five test files.
+
+**The result types are not redundant.** `SubmitResult` and friends are a summary
+of what the stream already said, for callers that want the outcome without
+reading events. The tests assert the two agree: trade events must account for
+exactly the reported `filled`, and cancelled events for exactly `cancelled`.
+
+---
+
+## DD-036 — The engine assigns sequence numbers
+
+**Decision:** every published event carries a `SequenceNumber`, starting at 1 and
+increasing by one. Scope is one engine, which is one instrument. Owed since
+DD-020 parked it.
+
+**Why:** without numbering, a consumer that drops or reorders events cannot tell.
+Numbering is what makes the stream replayable and gap-detectable, which is the
+reason to have a stream rather than a set of callbacks.
+
+Real venues number per matching partition for the same reason: a single writer is
+what makes the numbering meaningful.
+
+**Detail:** rejections are numbered too. They are events, and a consumer that
+skipped them would see gaps it could not explain.
+
+`SequenceNumber` is a strong type rather than a raw integer, consistent with
+DD-010.
+
+---
+
+## DD-037 — A modify publishes `Modified`, never a second `Accepted`
+
+**Decision:** the matching core was split out of `submit` into a private
+`apply()`. `submit` publishes `Accepted` then calls `apply`. `modify` publishes
+`Modified` then calls `apply`.
+
+**Why:** a modify that loses priority removes the order and puts it back, which
+is a submit internally. If it reused `submit`, the stream would carry a second
+`Accepted` for an order the client never resubmitted. That is not a cosmetic
+problem: a consumer reconstructing order state from the stream would count the
+order twice.
+
+Splitting `apply` out also keeps the matching rules in exactly one place, which
+is what DD-032 relied on when it routed repriced orders back through matching.
+
+---
+
+## DD-038 — The depth snapshot writes into a caller-supplied buffer
+
+**Decision:**
+`std::size_t OrderBook::snapshot(Side, std::span<LevelSnapshot> out) const`
+fills the caller's buffer, best price first, and returns how many rows it wrote.
+
+**Alternatives:** return a `std::vector<LevelSnapshot>`; or invoke a callback per
+level.
+
+**Why:** market data is snapshotted constantly, potentially on every book change.
+Returning a vector allocates every time, which is both a cost and a source of
+unpredictable latency. A callback avoids the allocation but leaves the caller to
+accumulate the rows.
+
+The span approach lets a publisher reuse one array across thousands of snapshots
+with no allocation, and sizing the span is how the caller picks the depth.
+
+**Rows are copies**, so nothing returned points into the book. That keeps the
+price-level container replaceable (DD-018), which matters here because a depth
+snapshot is exactly the kind of API that would otherwise leak an iterator.
+
+**Cost accepted:** a slightly clunkier call site than returning a container.

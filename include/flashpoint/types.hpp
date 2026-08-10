@@ -117,6 +117,29 @@ enum class TimeInForce : std::uint8_t {
 }
 
 // ---------------------------------------------------------------------------
+// QueuePriority
+// ---------------------------------------------------------------------------
+
+/// Whether a modified order kept its place in the queue at its price level.
+enum class QueuePriority : std::uint8_t {
+    /// The order stayed where it was.
+    Retained = 0,
+
+    /// The order went to the back of the queue at its price.
+    Lost = 1,
+};
+
+[[nodiscard]] constexpr std::string_view to_string(QueuePriority priority) noexcept {
+    switch (priority) {
+        case QueuePriority::Retained:
+            return "Retained";
+        case QueuePriority::Lost:
+            return "Lost";
+    }
+    return "Invalid";
+}
+
+// ---------------------------------------------------------------------------
 // Price
 // ---------------------------------------------------------------------------
 
@@ -248,6 +271,50 @@ public:
     friend constexpr bool operator==(OrderId, OrderId) noexcept = default;
 
     friend constexpr auto operator<=>(OrderId, OrderId) noexcept = default;
+
+private:
+    Rep value_ = kNone;
+};
+
+// ---------------------------------------------------------------------------
+// SequenceNumber
+// ---------------------------------------------------------------------------
+
+/// Position of an event in the engine's output stream.
+///
+/// Numbering starts at 1 and increases by one per event, so a consumer can tell
+/// whether it missed anything. Zero means "no sequence assigned" and is what a
+/// default-constructed value holds.
+///
+/// Scope is one engine, which is one instrument. Real venues number per matching
+/// partition for the same reason: a single writer is what makes the numbering
+/// meaningful.
+class SequenceNumber {
+public:
+    using Rep = std::uint64_t;
+
+    static constexpr Rep kNone = 0;
+
+    constexpr SequenceNumber() noexcept = default;
+
+    constexpr explicit SequenceNumber(Rep value) noexcept : value_(value) {}
+
+    [[nodiscard]] constexpr Rep value() const noexcept {
+        return value_;
+    }
+
+    [[nodiscard]] constexpr bool is_valid() const noexcept {
+        return value_ != kNone;
+    }
+
+    /// The next number in the stream.
+    [[nodiscard]] constexpr SequenceNumber next() const noexcept {
+        return SequenceNumber{value_ + 1};
+    }
+
+    friend constexpr bool operator==(SequenceNumber, SequenceNumber) noexcept = default;
+
+    friend constexpr auto operator<=>(SequenceNumber, SequenceNumber) noexcept = default;
 
 private:
     Rep value_ = kNone;

@@ -13,7 +13,7 @@ single logical commit. This file is updated as part of the milestone it closes.
 | 6   | Market orders & time-in-force (IOC / FOK)                           | ✔ Complete                     |
 | 7   | Cancel orders                                                       | ✔ Complete                     |
 | 8   | Modify / cancel-replace                                             | ✔ Complete                     |
-| 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ⬜ Not started                 |
+| 9   | Event stream & market data (trades, L2 snapshot, top-of-book)       | ✔ Complete                     |
 | 10  | Benchmarks (throughput & latency percentiles)                       | ⬜ Not started                 |
 | 11  | Measured performance tuning pass                                    | ⬜ Not started                 |
 | 12  | Demo application (order feed replay)                                | ⬜ Not started                 |
@@ -226,6 +226,38 @@ Decisions recorded as DD-030 through DD-033.
   recomputes the expected priority for every applied modify. It also asserts both
   branches of the rule were exercised at least fifty times each.
 
+## Milestone 9 — Event stream and market data ✔
+
+**Objective:** publish an ordered, numbered stream of everything the engine does,
+and add the two aggregated views a market data feed needs.
+
+Delivered:
+
+- `include/flashpoint/event.hpp` — `Event`, `EventType`, `RejectReason`.
+- `include/flashpoint/market_data.hpp` — `TopOfBook`, `LevelSnapshot`.
+- `SequenceNumber` in `types.hpp`, the numbering DD-020 parked at Milestone 6.
+- `OrderBook::top_of_book()` and `OrderBook::snapshot(Side, span)`.
+- The trade sink replaced by an event sink across `submit`, `modify` and
+  `cancel`. The matching core split into a private `apply()` so a modify
+  publishes `Modified` rather than a second `Accepted`.
+- `to_trade(Event)` for consumers that only want the tape.
+- `tests/test_support.hpp` with a shared `EventRecorder`.
+- 38 new tests across `event_test.cpp` and `market_data_test.cpp`.
+
+Decisions recorded as DD-034 through DD-038.
+
+**Verification performed:**
+
+- 186/186 tests pass under ASan/UBSan.
+- **Mutation tested.** Five injected bugs, all caught: sequence numbers never
+  advancing (3 failures), a modify publishing `Accepted` instead of `Modified`
+  (2), a trade event omitting the counterparty (9), the snapshot listing bids
+  lowest first (2), and the snapshot writing one row past the caller's buffer
+  (1, caught by ASan).
+- The event stream and the returned summaries are cross-checked: trade events
+  must account for exactly the reported `filled`, and cancelled events for
+  exactly `cancelled`.
+
 ## Parked decisions
 
 Recorded here so they are not silently defaulted:
@@ -266,5 +298,5 @@ Recorded here so they are not silently defaulted:
   modify keeps the order's id rather than minting a replacement (DD-033).
   Closing the first means adding original quantity to `Node`; the second means
   the same order-history mapping as above.
-- **Trade sequence numbers**: To be decided at Milestone 9, which owns the event
-  stream and therefore the counter (DD-020).
+- ~~**Trade sequence numbers**~~: Resolved at Milestone 9 — the engine numbers
+  every event from 1 (DD-036).

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "flashpoint/event.hpp"
+#include "flashpoint/market_data.hpp"
 #include "flashpoint/matching_engine.hpp"
 #include "flashpoint/order.hpp"
 #include "flashpoint/trade.hpp"
@@ -74,6 +76,54 @@ inline std::ostream& operator<<(std::ostream& os, ModifyStatus status) {
 inline std::ostream& operator<<(std::ostream& os, const ModifyResult& result) {
     return os << "ModifyResult{" << result.status << ", filled=" << result.filled
               << ", resting=" << result.resting << ", priority=" << result.priority << '}';
+}
+
+inline std::ostream& operator<<(std::ostream& os, SequenceNumber sequence) {
+    return os << 'v' << sequence.value();
+}
+
+inline std::ostream& operator<<(std::ostream& os, EventType type) {
+    return os << to_string(type);
+}
+
+inline std::ostream& operator<<(std::ostream& os, RejectReason reason) {
+    return os << to_string(reason);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Event& event) {
+    os << "Event{" << event.sequence << ' ' << event.type << ' ' << event.order_id;
+    if (event.type == EventType::Trade) {
+        os << " vs " << event.counterparty_id;
+    }
+    if (event.type == EventType::Rejected) {
+        return os << ' ' << event.reason << '}';
+    }
+    os << ' ' << event.side << ' ' << event.price << " x " << event.quantity;
+    if (event.type == EventType::Modified) {
+        os << ' ' << event.priority;
+    }
+    return os << '}';
+}
+
+inline std::ostream& operator<<(std::ostream& os, const LevelSnapshot& level) {
+    return os << "Level{" << level.price << " x " << level.quantity << " in " << level.order_count
+              << " orders}";
+}
+
+inline std::ostream& operator<<(std::ostream& os, const TopOfBook& top) {
+    os << "TopOfBook{";
+    if (top.has_bid()) {
+        os << top.bid_quantity << " @ " << *top.bid_price;
+    } else {
+        os << "no bid";
+    }
+    os << " | ";
+    if (top.has_ask()) {
+        os << top.ask_quantity << " @ " << *top.ask_price;
+    } else {
+        os << "no ask";
+    }
+    return os << '}';
 }
 
 inline std::ostream& operator<<(std::ostream& os, const RestingOrder& order) {
