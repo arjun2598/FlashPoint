@@ -29,6 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `enablement: true` turns Pages on via the API if it is off, so a fresh
+      # clone of this repository deploys. It needs the `pages: write` permission above. 
+      # If an organisation policy blocks it, switch Pages on by hand: Settings → Pages → Source: GitHub
+      # Actions.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Install Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
@@ -54,8 +62,6 @@ jobs:
             test -s "build/web/web/$f" || { echo "missing or empty: $f"; exit 1; }
           done
           ls -la build/web/web
-
-      - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
