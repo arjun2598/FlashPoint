@@ -108,8 +108,8 @@ Measured on an Apple M2, with the caveats stated in
 | | |
 |---|---|
 | Read top of book | 3.1 ns, flat across book depth |
-| Submit crossing one resting order | 20 ns |
-| Add and cancel, sustained | 15.7 M pairs per second |
+| Submit crossing one resting order | 19.7 ns amortised |
+| Add and cancel, sustained | 7.6 M pairs per second, or 15.3 M operations |
 | Synthetic flow | 5.7 M operations per second over two million orders |
 
 The performance document is worth reading for the process rather than the

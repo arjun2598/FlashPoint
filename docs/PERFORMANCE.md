@@ -195,8 +195,9 @@ Amortised mean per operation, which resolves below the clock floor.
 | read top of book | 4.23 ns | 7.33 ns | 1.73× |
 | snapshot, ten levels | 42.4 ns | 73.8 ns | 1.74× |
 
-Headline sustained rate: **15.5 M add-and-cancel pairs per second** on the
-shallow book, **10.3 M** on the deep one.
+Headline sustained rate: **7.8 M add-and-cancel pairs per second** on the
+shallow book, **5.1 M** on the deep one. Each pair is two operations, so the
+same measurement is 15.5 M and 10.3 M operations per second.
 
 There is deliberately no add-only throughput benchmark. Google Benchmark picks
 its own iteration count, and an add-only loop pushed six million orders into a
