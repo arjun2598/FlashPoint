@@ -1,13 +1,12 @@
 # Design Decisions
 
-A running log of decisions that were genuinely contested, where a reasonable
-engineer could have chosen otherwise. Each entry states the alternatives and why
-they lost. Decisions with no real alternative are not recorded here.
+A running log of decisions where a reasonable engineer could have chosen
+otherwise. Each entry states the alternatives and why they lost. Decisions with
+no real alternative are not recorded here.
 
-The order is chronological, and that is deliberate: read straight through and the
-reasoning develops, including the two places where a measurement overturned an
-earlier choice. The index below is for finding one entry; the body is for
-following the argument.
+The order is chronological, so reading straight through follows the reasoning as
+it developed, including the two places where a measurement overturned an earlier
+choice. The index below is for finding one entry.
 
 ## Index
 
@@ -99,10 +98,10 @@ following the argument.
 ---
 
 
-**Two entries are worth reading even out of context.** [DD-041](#dd-041) is an
-optimisation that was built, measured, found to do nothing, and reverted.
-[DD-042](#dd-042) is the bug that negative result led to: `best_bid()` had been
-O(log L) while documented as O(1), and no amount of reasoning had found it.
+Two entries stand on their own. [DD-041](#dd-041) is an optimisation that was
+built, measured, found to do nothing, and reverted. [DD-042](#dd-042) is the bug
+that negative result led to: `best_bid()` had been O(log L) while documented as
+O(1).
 
 ---
 
@@ -451,12 +450,11 @@ rather than a tuning problem, since real order flow tends to be dominated by can
 fixing it later would mean rewriting the algorithm and its API.
 
 **Why not `std::list`:** it has the same O(1) complexity as the intrusive
-version, so this is honestly a constant-factor decision, not a complexity one.
-DD-015's own principle argues for deferring it. What tips it is that
-`std::list` allocates per order, and unbounded allocation on the hot path produces an unbounded latency _tail_,
-which for a matching engine is the characteristic that matters most. That, plus the fact that the answer
-here is genuinely well established rather than empirical, is why this one was
-built now while DD-015 was deferred.
+version, so this is a constant-factor decision, not a complexity one, and
+DD-015's principle argues for deferring it. What tips it is that `std::list`
+allocates per order, and unbounded allocation on the hot path produces an
+unbounded latency _tail_. Unlike DD-015, the answer does not depend on
+measurement, so this one was built now.
 
 **Why indices rather than pointers:** a `std::uint32_t` index is half the size of
 a pointer, and it survives the pool reallocating as it grows, which is what
@@ -701,7 +699,7 @@ storing market orders as a synthetic extreme limit price. Protection gives the
 single code path of the second without the fake price, because the protection
 price is a real number derived from a real touch.
 
-**Details worth knowing:**
+**Details:**
 
 - Protection is measured from the touch when the order arrives, not
   re-evaluated per level as the sweep progresses.
@@ -838,7 +836,7 @@ most consequential thing about a modify, and the client cannot see the book to
 work it out. Reporting it also makes the rule directly testable rather than
 inferred from `front_at()`.
 
-**Worth knowing about the tests:** aggregate depth looks identical whether
+**About the tests:** aggregate depth looks identical whether
 priority was kept or lost. A bug here is invisible unless the test checks who
 fills next, so every priority case is followed by an order that trades against
 the level.
@@ -883,8 +881,7 @@ should behave like one. Rejecting this would force clients to cancel and resubmi
 which doesn't make sense for something expected and acceptable.
 
 Routing through `submit()` rather than putting the order straight back in the
-book is what makes this work, and it means the matching rules live in exactly one
-place. It also keeps the guarantee that the engine never leaves a crossed book,
+book keeps the matching rules in one place. It also keeps the guarantee that the engine never leaves a crossed book,
 for modify as well as submit.
 
 **Safety note:** the order is removed before the re-submit, so a rejected
@@ -1169,15 +1166,15 @@ One scales, the other does not. That is not a cache effect.
 | `cross_one_level` | 35.4 ns | 35.8 ns | unchanged |
 
 The three read paths are now **flat across book depth**; they were 1.7× worse on
-the deep book before. The mutation paths are untouched, which is exactly right:
-they do not read the touch, and their cost is `map::find`.
+the deep book before. The mutation paths are untouched: they do not read the touch,
+and their cost is `map::find`.
 
 **Cost accepted.** The two sides are different types now, so `levels_for()` is
 gone and a few helpers are written per side or as a template. That was the
 simplification Milestone 4 bought with the shared comparator, and it turned out
 to be paid for with a hidden O(log L).
 
-**Unexpected benefit.** Both sides now order best-first, so every walk over
+**Side benefit.** Both sides now order best-first, so every walk over
 levels runs forward from `begin()`. `snapshot` and `quantity_available` lost
 their reverse-iteration special cases and got shorter, not longer.
 
@@ -1245,7 +1242,7 @@ random-walking mid and reports throughput per chunk.
 level. A single number for the whole run would hide a slowdown.
 
 **What it settled.** DD-041 reverted a pooled allocator because no benchmark
-could detect any benefit, and the honest reason was that every benchmark builds
+could detect any benefit, because every benchmark builds
 its book in one burst. The system allocator was already returning contiguous
 nodes, so there was nothing to fix. That left an open question: would a
 long-running book that churns levels for millions of orders fragment?

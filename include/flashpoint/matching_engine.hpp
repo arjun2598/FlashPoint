@@ -185,9 +185,8 @@ struct EngineConfig {
     /// A market buy when the best ask is 100 and the band is 5 gets an effective
     /// limit of 105. Anything it cannot fill by then is cancelled.
     ///
-    /// This is what makes a market order safe to send: without it, a thin book
-    /// would let one sweep to an arbitrary price. CME calls it
-    /// market-with-protection.
+    /// Without it, a thin book would let a market order sweep to an arbitrary
+    /// price. CME calls it market-with-protection.
     Price::Rep market_protection_ticks = 10;
 };
 

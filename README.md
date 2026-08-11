@@ -112,11 +112,11 @@ Measured on an Apple M2, with the caveats stated in
 | Add and cancel, sustained | 7.6 M pairs per second, or 15.3 M operations |
 | Synthetic flow | 5.7 M operations per second over two million orders |
 
-The performance document is worth reading for the process rather than the
-numbers. It records a candidate eliminated by measurement before it was written,
-an optimisation built and then reverted for producing no measurable improvement,
-and the bug that negative result led to: `best_bid()` was O(log L) while
-documented as O(1). Fixing it made the read paths 2.4–4.7× faster on a deep book.
+The performance document records the process as well as the numbers: a candidate
+eliminated by measurement before it was written, an optimisation built and then
+reverted for producing no measurable improvement, and the bug that negative
+result led to — `best_bid()` was O(log L) while documented as O(1). Fixing it
+made the read paths 2.4–4.7× faster on a deep book.
 
 ## Documentation
 
@@ -130,15 +130,15 @@ documented as O(1). Fixing it made the read paths 2.4–4.7× faster on a deep b
 
 ## Engineering approach
 
-A few choices that shape the whole project, each recorded in full in
+Choices that shape the whole project, each recorded in full in
 [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md):
 
 - **All logic in a library, executables are thin.** An engine that only exists
   inside `main()` cannot be tested or benchmarked.
-- **C++20 over C++23.** Ensure standard library support for others if using this project.
-- **Sanitizers in CI, not as an afterthought.** An order book is a graph of
-  linked nodes with manual lifetimes, hence use-after-free on a cancelled order is the
-  single most likely defect here, and it is silent without ASan.
+- **C++20 over C++23**, for standard library support across compilers.
+- **Sanitizers in CI.** An order book is a graph of linked nodes with manual
+  lifetimes, so use-after-free on a cancelled order is the most likely defect
+  here, and it is silent without ASan.
 - **No performance claim without a measurement.** `docs/PERFORMANCE.md` states
   its methodology before any number exists.
 

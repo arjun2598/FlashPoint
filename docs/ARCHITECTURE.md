@@ -326,7 +326,7 @@ it: validation, rejection reasons, and reporting.
 | `UnknownOrder` | nothing with that id is resting |
 | `RejectedInvalidId` | the id was `OrderId::kNone`, the reserved "no order" value |
 
-Two things worth knowing:
+Two notes:
 
 - **The reported quantity is what was left, not the original size.** An order
   that filled 30 of 50 before the cancel reports 20. `cancel` reads

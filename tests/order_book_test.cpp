@@ -469,9 +469,9 @@ TEST(QuantityAvailable, TracksRemovalsAndPartialFills) {
 // Differential test against a reference model
 // ---------------------------------------------------------------------------
 
-/// A deliberately naive order book. Linear scans everywhere, a vector per level,
-/// no pooling. Written to be obviously correct at a glance, because its whole
-/// job is to be the thing we trust when the real book disagrees with it.
+/// A naive order book: linear scans everywhere, a vector per level, no pooling.
+/// Written to be obviously correct at a glance, since it is the oracle the real
+/// book is checked against.
 class ReferenceBook {
 public:
     struct Entry {

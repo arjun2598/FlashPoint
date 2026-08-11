@@ -98,14 +98,12 @@ LatencyStats cancel_random(const BookShape& shape, std::size_t samples) {
 /// Adding an order at a price that does not yet exist, creating a new level.
 ///
 /// Milestone 10 measured no scenario that created a level: every add reused a
-/// price already in the book. That gap matters, because it is the operation the
-/// candidate replacements for the price-level container differ on most. A sorted
-/// vector looks excellent everywhere else and has to shift every element past
-/// the insertion point here.
+/// price already in the book. This is the operation the candidate replacements
+/// for the price-level container differ on most: a sorted vector has to shift
+/// every element past the insertion point.
 ///
-/// The new level is a new best bid, which is the realistic case: real flow moves
-/// the touch constantly, and it is also the worst position for any structure
-/// that keeps levels contiguous.
+/// The new level is a new best bid: real flow moves the touch constantly, and it
+/// is the worst position for any structure that keeps levels contiguous.
 ///
 /// The previous new level is cancelled untimed before each measurement, so the
 /// level count stays at the book shape rather than growing.

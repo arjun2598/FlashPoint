@@ -1,6 +1,6 @@
 // Tests for modifying resting orders.
 //
-// Queue priority is the whole point of this milestone:
+// Queue priority:
 //
 //   * Reducing quantity at the same price keeps the order's place in line.
 //   * Increasing it, or changing the price, sends the order to the back.

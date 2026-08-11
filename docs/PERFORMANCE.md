@@ -36,13 +36,12 @@ measurement at Milestone 11.
   is cache-friendly but O(n) to insert mid-book. Real books are dense near the
   touch and sparse in the tail, which favours a hybrid.
 
-  Milestone 4 deliberately left this alone (DD-015) so that Milestone 10 has a
-  baseline to measure against and Milestone 11 has an oracle to differential-test
-  the replacement against. Worth noting what the book's structure now
-  guarantees: **every remaining O(log L) term in the book comes from this one
-  component.** `add`, `remove` and all three depth queries each pay exactly one
-  level lookup and nothing else. That makes the size of the prize measurable
-  before the work is done.
+  Milestone 4 left this alone (DD-015) so that Milestone 10 has a baseline to
+  measure against and Milestone 11 has an oracle to differential-test the
+  replacement against. **Every remaining O(log L) term in the book comes from
+  this one component:** `add`, `remove` and all three depth queries each pay one
+  level lookup and nothing else, so the available gain can be sized before the
+  work starts.
 - ~~**Order storage within a level.**~~ Resolved at Milestone 4: an intrusive
   doubly-linked FIFO queue over a pooled `std::vector`, with freed slots on a
   free list. No per-order allocation in steady state, and O(1) unlink from any
@@ -68,18 +67,14 @@ measurement at Milestone 11.
 - **`Order` is 32 bytes, and could plausibly be 24.** `Price::Rep` and
   `Quantity::Rep` are 64-bit. Tick counts and share quantities may fit
   comfortably in 32 bits for any realistic instrument, which would take the
-  payload from 25 bytes to 17 and the object from 32 to 24, improving cache density and allowing
-  more orders to fit in higher cache levels. However, the choice of 64-bit is intentional
-  here to allow a greater range, and latency should be measured under realistic order-book workloads
-  before reducing the representation size, since smaller objects improve cache locality but may not
-  materially affect end-to-end matching performance.
+  payload from 25 bytes to 17 and the object from 32 to 24. The 64-bit choice is
+  intentional, for range. Smaller objects improve cache density, but whether that
+  shows up in end-to-end matching has to be measured under a realistic workload
+  before the representation shrinks.
 
-  Recorded here rather than acted on. The point worth noting is that because
-  each type names its representation as a nested `Rep` alias, testing the
-  hypothesis is a two-line change plus updating the `sizeof` assertion in
-  `tests/order_test.cpp` — not a repo-wide edit. That cheapness is a deliberate
-  payoff of the strong-type wrapper (DD-010) and is what makes it reasonable to
-  defer the question instead of guessing now.
+  Recorded rather than acted on. Because each type names its representation as a
+  nested `Rep` alias, testing the hypothesis is a two-line change plus the
+  `sizeof` assertion in `tests/order_test.cpp`, not a repo-wide edit (DD-010).
 
 ## Guard rails already in place
 
@@ -138,8 +133,7 @@ measurement can find:
    the latency harness gives the distribution above it.
 3. **The `max` column is the operating system, not the engine.** Values in the
    tens of microseconds are the thread being descheduled. They are reported
-   rather than trimmed, because silently discarding outliers is how benchmarks
-   become dishonest, but they say nothing about the code.
+   rather than trimmed, but they say nothing about the code.
 
 ## Results
 
@@ -150,8 +144,8 @@ many distinct price levels those orders occupy:
 - **deep** — 1,000 levels × 5 orders
 
 Everything in the book that is not O(1) scales with the level count, so the gap
-between the two columns is precisely the cost the Milestone 11 container change
-is meant to remove.
+between the two columns is the cost the Milestone 11 container change is meant
+to remove.
 
 ### Latency distribution, nanoseconds
 
@@ -208,12 +202,11 @@ harness, where the sample count is fixed and the pool is reserved up front.
 ### What the numbers say
 
 1. **Every operation that touches a price level costs 1.5–1.75× more on the deep
-   book.** The ratio is remarkably consistent across unrelated operations, which
-   is what you would expect if a single shared component (the price-level
-   container) is responsible. This is the prize Milestone 11 is chasing, and it
-   is now sized rather than assumed.
+   book.** The ratio holds across unrelated operations, which points at a single
+   shared component: the price-level container. That sizes what Milestone 11 has
+   to gain.
 
-2. **Reading top of book is 4.2 ns and genuinely O(1)**, but still 1.73× slower
+2. **Reading top of book is 4.2 ns and O(1)**, but still 1.73× slower
    on the deep book. That is not algorithmic; `rbegin()` on a `std::map` is O(1)
    either way. It is the pointer chase into a tree node that is less likely to be
    in cache when the tree is a hundred times larger. A flat structure would fix
@@ -240,15 +233,14 @@ harness, where the sample count is fixed and the pool is reserved up front.
 
 ### Two benchmark bugs found and fixed during this milestone
 
-Recorded because they are the reason to trust the final numbers, and because
-both would have produced plausible-looking but wrong results.
+Both would have produced plausible-looking but wrong results.
 
 - **`modify, priority retained` measured the wrong thing twice.** It first passed
   a fixed price rather than the order's own, which made most iterations a reprice
   (the priority-*lost* path) and migrated the whole book onto one level part
   way through the run. Corrected to use the order's price, it then passed the
   *same* quantity back, which skips the reduce entirely and measured a lookup and
-  an event. It now genuinely reduces the quantity.
+  an event. It now reduces the quantity.
 - **`bm_add_non_marketable` measured pool growth.** Described above; removed.
 
 Neither bug would have failed anything. They were caught by noticing that a
@@ -319,7 +311,7 @@ Latency p50, deep book: `snapshot` fell from 83 ns to 42 ns, and its p99.9 from
 
 **The three read paths are now flat across book depth.** They were 1.7× worse on
 the deep book; they are now within noise of each other. The mutation paths are
-unchanged, which is correct — they never read the touch.
+unchanged, since they never read the touch.
 
 Both sides now order best-first, so every walk over levels runs forward from
 `begin()`. `snapshot` and `quantity_available` lost their reverse-iteration

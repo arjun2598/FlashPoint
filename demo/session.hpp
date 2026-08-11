@@ -2,7 +2,7 @@
 //
 // The same parser serves every front end. Given a file it replays a scenario;
 // given a terminal it is an interactive prompt; given a browser it drives the
-// WebAssembly build. What differs is only where the results go, which is what
+// WebAssembly build. Only the destination of the output differs, which is what
 // `Reporter` abstracts.
 
 #pragma once

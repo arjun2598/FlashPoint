@@ -36,9 +36,9 @@ struct RestingOrder {
 /// engine's concern (DD-014).
 ///
 /// It is a container, not a matching engine. Nothing here prevents a bid from
-/// resting above the best ask, guaranteeing a non-crossed book is the matching
-/// engine's job. Adding that check here would duplicate the engine's
-/// logic in a place that cannot produce a trade to resolve the cross.
+/// resting above the best ask; keeping the book uncrossed is the engine's job.
+/// Checking here would duplicate that logic in a place that cannot produce a
+/// trade to resolve the cross.
 ///
 /// # Complexity
 ///
@@ -56,10 +56,9 @@ struct RestingOrder {
 /// Interface contract:
 ///
 /// Every accessor returns a value or an `OrderId`. Nothing returns an iterator,
-/// a reference into the book, or any type derived from the internal containers.
-/// This allows the price-level container to potentially be replaced at Milestone 11 if needed
-/// without touching a single caller, and `tests/order_book_test.cpp` pins it with static
-/// assertions so it cannot erode quietly.
+/// a reference into the book, or any type derived from the internal containers,
+/// so the price-level container can be replaced without touching a caller.
+/// `tests/order_book_test.cpp` pins this with static assertions.
 class OrderBook {
 public:
     OrderBook() = default;

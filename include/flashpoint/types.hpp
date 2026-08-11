@@ -287,8 +287,8 @@ private:
 /// default-constructed value holds.
 ///
 /// Scope is one engine, which is one instrument. Real venues number per matching
-/// partition for the same reason: a single writer is what makes the numbering
-/// meaningful.
+/// partition for the same reason: the numbering only means anything with a
+/// single writer.
 class SequenceNumber {
 public:
     using Rep = std::uint64_t;

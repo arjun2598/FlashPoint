@@ -97,11 +97,10 @@ enum class RejectReason : std::uint8_t {
 
 /// One entry in the engine's output stream.
 ///
-/// A single flat record rather than a variant of five shapes. The reason is
-/// replay: this is trivially copyable and fixed size, so a stream can be written
-/// to a file or a socket and read back without any encoding step. That is what
-/// the Milestone 12 demo needs, and it is how real market data protocols are
-/// laid out.
+/// A single flat record rather than a variant of five shapes, for replay: it is
+/// trivially copyable and fixed size, so a stream can be written to a file or a
+/// socket and read back with no encoding step, which is how market data
+/// protocols are laid out.
 ///
 /// The cost is that not every field means something for every type. The table
 /// below is the contract; anything not listed for a type is left at its default

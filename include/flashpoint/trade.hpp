@@ -11,15 +11,14 @@ namespace flashpoint {
 /// A single execution: one resting order matched against one incoming order.
 /// A sweep that fills against four resting orders produces four Trades, not one.
 ///
-/// This is a plain aggregate rather than a class with a constructor, and that is
-/// deliberate. `maker_id` and `taker_id` are both `OrderId`, so a positional
-/// constructor would let them be transposed silently. This is a potential failure that
-/// strong types cannot prevent, because the two arguments genuinely are the same
-/// type. Designated initialisers put the field name at the call site:
+/// A plain aggregate rather than a class with a constructor. `maker_id` and
+/// `taker_id` are both `OrderId`, so a positional constructor would let them be
+/// transposed silently, which strong types cannot catch when both arguments are
+/// the same type. Designated initialisers put the field name at the call site:
 ///
 ///     Trade{.maker_id = resting, .taker_id = incoming, ...}
 ///
-/// which makes the mistake visible where it would be made (DD-021).
+/// (DD-021).
 struct Trade {
     /// The order that was already resting and provided liquidity.
     OrderId maker_id{};

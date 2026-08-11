@@ -4,12 +4,11 @@
 // orders, and it is the long-running level-churning workload the benchmarks do
 // not provide.
 //
-// That second purpose matters: DD-041 reverted a pooled allocator because the
-// benchmarks could not detect any benefit, and the reason was that each
-// benchmark builds its book in one burst. This runs for millions of orders with
-// the touch moving constantly, so levels are created and destroyed throughout.
-// Reporting throughput per chunk makes any fragmentation visible as a slowdown
-// over the run.
+// DD-041 reverted a pooled allocator because the benchmarks could not detect
+// any benefit, each of them building its book in one burst. This runs for
+// millions of orders with the touch moving constantly, so levels are created and
+// destroyed throughout, and per-chunk throughput makes fragmentation visible as
+// a slowdown over the run.
 //
 // The simulation and the reporting are separate so the terminal demo and the
 // browser build can share the first and differ in the second.

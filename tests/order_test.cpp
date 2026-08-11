@@ -48,11 +48,10 @@ static_assert(make_order().id() == OrderId{7});
 // Layout
 // ---------------------------------------------------------------------------
 
-// Pins the memory layout deliberately. This is not a correctness property, it is
-// a performance regression test: at 32 bytes two orders share a 64-byte cache
-// line, and the book's traffic is dominated by walking orders. If a later
-// milestone adds a field, this fails and forces the cost to be an explicit
-// decision rather than an accident.
+// Pins the memory layout. Not a correctness property but a performance
+// regression test: at 32 bytes two orders share a 64-byte cache line, and the
+// book's traffic is dominated by walking orders. A later field addition fails
+// here rather than passing unnoticed.
 //
 // 8 (OrderId) + 8 (Price) + 8 (Quantity) + 1 (Side) + 1 (OrderType)
 // + 1 (TimeInForce) = 27 bytes of payload, rounded to 32 by the 8-byte

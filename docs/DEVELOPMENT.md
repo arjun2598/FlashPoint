@@ -132,7 +132,7 @@ Built by default, in any preset.
 cmake --preset dev && cmake --build --preset dev --parallel
 ```
 
-The built-in tour, which is what someone who just cloned the repository wants:
+The built-in tour:
 
 ```bash
 ./build/dev/demo/flashpoint_demo
